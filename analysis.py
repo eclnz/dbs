@@ -141,7 +141,7 @@ class Scan:
         self.file_path = file_path
         validate_file_path(file_path)
         self.img = nib.load(self.file_path, mmap=True)
-        self.shape = self.img.shape
+        self.shape = self.img.shape #type: ignore
         self.displacements: Dict[Index, npt.NDArray[np.float32]] = {}
 
     def __del__(self):
@@ -151,7 +151,7 @@ class Scan:
                 self.img.uncache()
 
     def _load_fdata(self) -> npt.NDArray[np.float32]:
-        return self.img.get_fdata().astype(np.float32)
+        return self.img.get_fdata().astype(np.float32) #type:ignore
 
     def _unload_fdata(self):
         if hasattr(self.img, "uncache"):
@@ -466,7 +466,7 @@ class ScanCollection:
         cbar.set_label('Most Similar Voxel Presence')
         
         plt.suptitle(f'Visualization of {num_similar} MOST SIMILAR Indices (Final Round)', fontsize=16)
-        plt.tight_layout(rect=[0, 0.05, 1, 0.95]) # Adjust layout for suptitle
+        plt.tight_layout(rect=[0, 0.05, 1, 0.95]) # type:ignore
         plt.savefig(output_path, dpi=300, bbox_inches='tight')
         plt.close()
         print(f"Most similar indices visualization saved to {output_path}")
@@ -495,7 +495,7 @@ class ScanCollection:
                  axes[2, i].set_title(f'Sagittal Slice x={x}'); axes[2, i].set_xlabel('Z'); axes[2, i].set_ylabel('Y')
 
         plt.suptitle(f'Detailed Slices of {num_similar} MOST SIMILAR Indices', fontsize=16)
-        plt.tight_layout(rect=[0, 0.03, 1, 0.95]) # Adjust layout
+        plt.tight_layout(rect=[0, 0.03, 1, 0.95]) # type: ignore
         plt.savefig(output_path.replace('.png', '_detailed.png'), dpi=300, bbox_inches='tight')
         plt.close()
         print(f"Detailed most similar indices visualization saved to {output_path.replace('.png', '_detailed.png')}")
