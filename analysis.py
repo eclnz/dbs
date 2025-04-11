@@ -63,33 +63,48 @@ class Grid:
     
     def fine_tune_grid(self, similar_voxel_indices: List[Index]):
         
-        self.nth_voxel = np.ceil(self.nth_voxel / 2)
+        new_nth_voxel = max(1, int(np.ceil(self.nth_voxel / 2))) # Ensure integer step
         
         # Generate fine grid coordinates around each center voxel
-        fine_indices: List[Index] = []
+        fine_indices_set = set() # Use a set for efficient duplicate handling
+        
         for voxel in similar_voxel_indices:
-            # Calculate bounds for each dimension, ensuring they stay within reference shape
-            bounds = [
-                (max(0, voxel.x - self.nth_voxel),
-                 min(self.reference_shape[0], voxel.x + self.nth_voxel)),
-                (max(0, voxel.y - self.nth_voxel),
-                 min(self.reference_shape[1], voxel.y + self.nth_voxel)),
-                (max(0, voxel.z - self.nth_voxel),
-                 min(self.reference_shape[2], voxel.z + self.nth_voxel))
-            ]
-            
-            # Generate coordinates for each dimension
-            coords = [np.arange(start, end, self.nth_voxel) for start, end in bounds]
-            
-            # Create grid and add to fine indices
-            grid = np.stack(np.meshgrid(*coords, indexing='ij'), axis=-1)
-            fine_indices.extend(map(lambda x: Index(x[0], x[1], x[2]), grid.reshape(-1, 3)))
+            # Define coordinate ranges symmetrically around the voxel
+            # using the new_nth_voxel step size. Add 1 to the end point for np.arange
+            # to potentially include the upper bound if it falls on a step.
+            x_range = np.arange(
+                max(0, voxel.x - new_nth_voxel),
+                min(self.reference_shape[0], voxel.x + new_nth_voxel + 1),
+                new_nth_voxel
+            )
+            y_range = np.arange(
+                max(0, voxel.y - new_nth_voxel),
+                min(self.reference_shape[1], voxel.y + new_nth_voxel + 1),
+                new_nth_voxel
+            )
+            z_range = np.arange(
+                max(0, voxel.z - new_nth_voxel),
+                min(self.reference_shape[2], voxel.z + new_nth_voxel + 1),
+                new_nth_voxel
+            )
+
+            # Create grid points within the defined ranges
+            # Check if any range is empty before meshing
+            if x_range.size > 0 and y_range.size > 0 and z_range.size > 0:
+                grid = np.stack(np.meshgrid(x_range, y_range, z_range, indexing='ij'), axis=-1)
+                # Add valid Index objects to the set
+                for point in grid.reshape(-1, 3):
+                    # Ensure points are within the original reference shape strictly
+                    if (0 <= point[0] < self.reference_shape[0] and
+                        0 <= point[1] < self.reference_shape[1] and
+                        0 <= point[2] < self.reference_shape[2]):
+                         fine_indices_set.add(Index(int(point[0]), int(point[1]), int(point[2])))
         
-        # Remove duplicates (in case finer grids overlap)
-        unique_indices = list(set(fine_indices))
+        # Convert the set of unique indices to a list
+        unique_indices = list(fine_indices_set)
         
-        # Create and return a new grid
-        fine_grid = Grid(self.reference_shape, self.nth_voxel)
+        # Create and return a new grid with the refined indices and step size
+        fine_grid = Grid(self.reference_shape, new_nth_voxel) # Use new_nth_voxel
         fine_grid.indices = unique_indices
         
         return fine_grid
@@ -196,9 +211,6 @@ class Scan:
 
     def get_displacements(self) -> npt.NDArray[np.float32]:
         return np.array(list(self.displacements.values()), dtype=np.float32)
-
-    def get_voxel_indices(self) -> List[Index]:
-        return self.voxel_indices
 
 
 class ScanCollection:
