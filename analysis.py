@@ -1,18 +1,18 @@
 import os
 import numpy as np
 import pickle
-from numba import jit
+from numba import jit #type: ignore
 from dataclasses import dataclass
-from typing import List, Dict, Tuple, Optional
+from typing import List, Dict, Tuple, Optional, Union
 import numpy.typing as npt
 import matplotlib.pyplot as plt
 import nibabel as nib
-
+from fnmatch import fnmatch
+import bids as bd
 
 def validate_file_path(file_path: str):
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"File not found: {file_path}")
-
 
 class Index:
     def __init__(self, x: int, y: int, z: int):
@@ -131,31 +131,43 @@ class IncludedIndices:
         return self.indices
 
 
-@dataclass
-class VoxelDisplacement:
-    """Class to hold displacement data for a single voxel"""
+class Similarity:
+    def __init__(self):
+        self.similarities: Dict[Index, np.float32] = {}
 
-    voxel_coords: Index
-    displacements: npt.NDArray[np.float32]  # Shape: (3, timepoints)
+    def add_similarity(self, index: Index, similarity: np.float32):
+        self.similarities[index] = similarity
+        
+    def get_similarity(self, index: Index) -> np.float32:
+        return self.similarities[index]
+    
+    def add_similarities(self, indices: List[Index], similarities: npt.NDArray[np.float32]):
+        for index, similarity in zip(indices, similarities):
+            self.add_similarity(index, similarity)
 
-    def __init__(
-        self,
-        voxel_coords: Index,
-        x: npt.NDArray[np.float32],
-        y: npt.NDArray[np.float32],
-        z: npt.NDArray[np.float32],
-    ):
-        self.voxel_coords = voxel_coords
-        # Stack x, y, z into a single array
-        self.displacements = np.stack((x, y, z), axis=0)
+    def get_indices(self) -> List[Index]:
+        return list(self.similarities.keys())
+    
+    def find_extreme_voxels(self, proportion: float = 0.1) -> List[Index]:
+        # Calculate number of voxels to return based on proportion
+        n_voxels = int(len(self.get_indices()) * proportion)
+        if n_voxels < 1:
+            n_voxels = 1
+
+        # Get indices of the most similar voxels
+        most_similar_indices = np.argsort(list(self.similarities.values()))[-n_voxels:]
+        most_similar_coords = [self.get_indices()[i] for i in most_similar_indices]
+
+        return most_similar_coords
+            
 
 
-class Scan:
-    def __init__(self, file_path: str):
-        self.scan_id = file_path.split("/")[-1].split(".")[0]
-        self.file_path = file_path
-        validate_file_path(file_path)
-        self.img = nib.load(self.file_path, mmap=True)
+class DisplacementScan(bd.Scan):
+    """Extension of BIDS Scan that adds displacement data handling capabilities"""
+    
+    def __init__(self, path: str):
+        super().__init__(path)
+        self.img = nib.load(self.path, mmap=True)
         self.shape = self.img.shape #type: ignore
         self.displacements: Dict[Index, npt.NDArray[np.float32]] = {}
 
@@ -211,13 +223,62 @@ class Scan:
 
     def get_displacements(self) -> npt.NDArray[np.float32]:
         return np.array(list(self.displacements.values()), dtype=np.float32)
+    
+    def get_specific_displacements(self, indices: List[Index]) -> npt.NDArray[np.float32]:
+        return np.array([self.displacements[index] for index in indices], dtype=np.float32)
 
 
-class ScanCollection:
-    def __init__(self, scan_paths: List[str]):
-        self.scans = [Scan(path) for path in scan_paths]
+
+class BIDSScanCollection:
+    def __init__(self, bids_instance: bd.BIDS, scan_pattern: str = "*", 
+                 subject_filter: Optional[List[str]] = None, 
+                 session_filter: Optional[List[str]] = None):
+        """
+        Initialize a scan collection from a BIDS dataset.
+        
+        Args:
+            bids_instance: A BIDS object with loaded subjects and sessions
+            scan_pattern: Pattern to match scan names (e.g., "*bold*")
+            subject_filter: List of subject IDs to include (None = all)
+            session_filter: List of session IDs to include (None = all)
+        """
+        self.bids = bids_instance
+        self.scans: List[DisplacementScan] = []
+        self.similarity = Similarity()
+        
+        # Load matching scans from the BIDS structure
+        self._load_matching_scans(scan_pattern, subject_filter, session_filter)
+        
+        if not self.scans:
+            raise ValueError(f"No matching scans found with pattern '{scan_pattern}'")
+            
+        # Get dimensions from the first scan
         self.dims = self._get_unique_dims()
-
+        
+    def _load_matching_scans(self, scan_pattern: str, subject_filter: Optional[List[str]], 
+                            session_filter: Optional[List[str]]) -> None:
+        
+        for subject in self.bids.subjects:
+            # Skip if subject doesn't match filter
+            if subject_filter and subject.subject_id not in subject_filter:
+                continue
+                
+            for session in subject.sessions:
+                # Skip if session doesn't match filter
+                if session_filter and session.session_id not in session_filter:
+                    continue
+                    
+                for scan in session.scans:
+                    # Check if scan name matches the pattern
+                    if fnmatch(scan.scan_name, scan_pattern):
+                        try:
+                            # Create a DisplacementScan from the regular BIDS Scan
+                            displacement_scan = DisplacementScan(scan.path)
+                            self.scans.append(displacement_scan)
+                            print(f"Added scan: {scan.scan_name} from {subject.get_name()}/{session.get_name()}")
+                        except Exception as e:
+                            print(f"Error creating DisplacementScan for {scan.path}: {str(e)}")
+    
     def _get_unique_dims(self) -> Tuple[int, int, int]:
         unique_dims = set()
         for scan in self.scans:
@@ -281,23 +342,24 @@ class ScanCollection:
         # Make sure all scans only have valid indices
         self.reject_indices(self.included_indices)
         
-        # Calculate similarity and find most similar voxels for this level
-        analyzer = DisplacementAnalyzer(self.scans, self.included_indices)
-        similar_voxel_indices = analyzer.find_extreme_voxels(0.25) # Proportion used for refinement
+        # New indicies for similarity matrix
+        existing_similarity_indices = set(self.similarity.get_indices())
+        current_indices = set(self.included_indices.get_indices())
+        new_indices = list(current_indices - existing_similarity_indices)
+        new_similarities = self.calculate_similarity(new_indices)
+        self.similarity.add_similarities(new_indices, new_similarities)
+        self.most_similar_indices = self.similarity.find_extreme_voxels(proportion=0.1)
         
         # Base case: reached maximum depth
         if depth >= max_depth:
             print(f"Reached maximum depth {max_depth}. Finalizing.")
-            # Store the final most similar indices (e.g., top 10 or a fixed proportion)
-            self.most_similar_indices = analyzer.find_extreme_voxels(proportion=0.1) # Example: Store top 10%
-            print(f"Stored {len(self.most_similar_indices)} most similar indices for final visualization.")
             return
         
         # --- Recursive step ---
-        print(f"Found {len(similar_voxel_indices)} similar voxels for fine-tuning at depth {depth}")
+        print(f"Found {len(self.most_similar_indices)} similar voxels for fine-tuning at depth {depth}")
         
         # Create a finer grid focused around the most similar voxels
-        fine_grid = grid.fine_tune_grid(similar_voxel_indices)
+        fine_grid = grid.fine_tune_grid(self.most_similar_indices)
         print(f"Created fine grid with {len(fine_grid.get_indices())} points for depth {depth + 1}")
         
         # Add the fine grid indices to the included indices for the next level
@@ -310,8 +372,26 @@ class ScanCollection:
     def get_scan_arrays(self) -> List[npt.NDArray[np.float32]]:
         return [scan.get_displacements() for scan in self.scans]
 
-    def get_scan(self, index: int) -> Scan:
+    def get_scan(self, index: int) -> DisplacementScan:
         return self.scans[index]
+    
+    def get_specific_displacements_array(self, indices: List[Index]) -> List[npt.NDArray[np.float32]]:
+        displacements_list = []
+        for scan in self.scans:
+            displacements_list.append(scan.get_specific_displacements(indices))
+        return displacements_list
+    
+    def calculate_similarity(self, indices: List[Index]) -> npt.NDArray[np.float32]:
+        # Construct list of displacements arrays for the given indices
+        scans_list = self.get_specific_displacements_array(indices)
+        # Calculate similarity matrix for the list of displacements arrays
+        similarity_matrix = calculate_similarity_matrix(scans_list)
+        # Extract lower triangle (excluding diagonal) of similarity matrix for each voxel
+        lower_tri_indices = np.tril_indices(similarity_matrix.shape[0], k=-1)
+        voxel_similarities = similarity_matrix[lower_tri_indices[0], lower_tri_indices[1], :]
+        # Calculate mean similarity for each index across unique subject pairs
+        mean_similarities = np.mean(voxel_similarities, axis=0)
+        return mean_similarities
 
     def visualize_indices(self, output_path: str = "final_indices.png"):
         """
@@ -548,7 +628,7 @@ def compare_2_subjects(
 
 
 @jit(nopython=True)
-def compare_all_subjects(
+def calculate_similarity_matrix(
     scans: List[npt.NDArray[np.float32]],
 ) -> npt.NDArray[np.float32]:
     num_voxels = len(scans[0])
@@ -562,107 +642,33 @@ def compare_all_subjects(
 
     return similarities
 
-
-class DisplacementAnalyzer:
-    def __init__(self, scans: List[Scan], included_indices: IncludedIndices):
-        self.scans = scans
-        self.index = included_indices.get_indices()
-
-    def compare_all_subjects(self) -> npt.NDArray[np.float32]:
-        scans_list = [scan.get_displacements() for scan in self.scans]
-        return compare_all_subjects(scans_list)
-
-    def find_extreme_voxels(self, proportion: float) -> List[Index]:
-        # Calculate similarities between all subjects
-        similarities = self.compare_all_subjects()
-
-        # Extract lower triangle (excluding diagonal) of similarity matrix for each voxel
-        lower_tri_indices = np.tril_indices(similarities.shape[0], k=-1)
-        voxel_similarities = similarities[lower_tri_indices[0], lower_tri_indices[1], :]
-        # Calculate mean similarity for each voxel across unique subject pairs
-        mean_similarities = np.mean(voxel_similarities, axis=0)
-
-        # Calculate number of voxels to return based on proportion
-        n_voxels = int(len(self.index) * proportion)
-        if n_voxels < 1:
-            n_voxels = 1
-
-        # Get indices of the most similar voxels
-        most_similar_indices = np.argsort(mean_similarities)[-n_voxels:]
-        most_similar_coords = [self.index[i] for i in most_similar_indices]
-
-        return most_similar_coords
-
 if __name__ == "__main__":
 
-    NTH_VOXEL_SAMPLING = 16 # Divide the voxel size by 2 each time
+    NTH_VOXEL_SAMPLING = 16
     MAX_VOXELS_PER_SUBJECT = 200_000
     DEPTH = 4
+    
+    # Load the BIDS dataset
+    bids = bd.BIDS("/Users/edwardclarkson/git/qaMRI-clone/testData/BIDS4")
+    
+    print("\nCreating scan collection from BIDS dataset...")
+    
+    # Create a scan collection from the BIDS dataset
+    # Filter for displacement maps in the derivatives folder
 
-    # --- Define Subject Scan Paths (Replace with your actual paths) ---
-    subject_scan_paths = [
-        os.path.join("maps", f) for f in os.listdir("maps") if f.endswith(".nii.gz")
-    ]
-
-    # --- Load Data for all Subjects ---
-    print("Loading subject data...")
-    scans_list: List[Scan] = []
-
-    scans = ScanCollection(subject_scan_paths)
+    scans = BIDSScanCollection(
+        bids_instance=bids,
+        scan_pattern="*MNI152_motion",  # Pattern to match displacement maps
+        subject_filter=None,    # All subjects (or specify like ["01", "02"])
+        session_filter=None     # All sessions (or specify like ["pre", "post"])
+    )
+    
+    print(f"Successfully loaded {len(scans.scans)} scans")
+    
+    # Proceed with grid construction and processing
     grid = scans.construct_grid(NTH_VOXEL_SAMPLING, MAX_VOXELS_PER_SUBJECT)
     scans.process_scans(grid, max_depth=DEPTH)
     
-    # Visualize ALL final included indices
-    scans.visualize_indices() 
-    
-    # Visualize ONLY the MOST SIMILAR final indices
-    scans.visualize_most_similar_indices() 
-
-    # for scan_path in subject_scan_paths:
-    #     if not os.path.exists(scan_path):
-    #         print(f"Error: Scan file not found for {scan_path}. Skipping subject.")
-    #         continue
-    #     try:
-    #         subject_data = load_subject_data(
-    #             subject_id=scan_path,
-    #             scan_path=scan_path,
-    #             nth_voxel=NTH_VOXEL_SAMPLING,
-    #             max_voxels=MAX_VOXELS_PER_SUBJECT
-    #         )
-    #         subjects_list.append(subject_data)
-    #     except FileNotFoundError:
-    #         print(f"Error: Scan file not found for {sub_id} at {scan_path}. Skipping subject.")
-    #     except Exception as e:
-    #          print(f"Error loading data for {scan_path}: {e}. Skipping subject.")
-
-    # if not subjects_list:
-    #     print("No subject data loaded. Exiting.")
-    #     exit()
-    # elif len(subjects_list) < 2:
-    #      print("Need at least two subjects with loaded data to perform analysis. Exiting.")
-    #      exit()
-
-    # print(f"\nSuccessfully loaded data for {len(subjects_list)} subjects.")
-
-    # # --- Perform Analysis ---
-    # analyzer = DisplacementAnalyzer(subjects_list)
-
-    # # Get extreme cases (comparing across all loaded subjects)
-    # print("\nCalculating similarities and finding extreme cases...")
-    # results = analyzer.get_extreme_cases(n_cases=3) # Find top/bottom 3
-
-    # # --- Plot Results ---
-    # print("\nPlotting results...")
-    # # Ensure matplotlib is imported
-    # import matplotlib.pyplot as plt
-
-    # # Plot individual traces for the top/bottom voxels
-    # # plot_extreme_cases(results) # This function needs adjustment for coordinate IDs
-
-    # # Plot average traces with error bars for the top/bottom voxels
-    # # plot_average_traces(results) # This function also needs adjustment
-
-    # print("\nAnalysis complete.")
-
-    # TODO: Update plotting functions to handle coordinate tuples as IDs if needed
-    #       or modify `get_extreme_cases` to return string IDs along with coordinates.
+    # Visualize results
+    scans.visualize_indices()
+    scans.visualize_most_similar_indices()
