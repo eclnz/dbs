@@ -250,14 +250,17 @@ class ScanCollection:
             depth: Current recursion depth (default: 0)
             max_depth: Maximum recursion depth (default: 3)
         """
-        # Create a unique filename for each recursion level
         scan_file = f"scan_depth_{depth}.pkl"
         indices_file = f"indices_depth_{depth}.pkl"
         
-        # Initialize included_indices with the grid indices
-        self.included_indices = IncludedIndices(grid.get_indices())
+        # Initialize or add to included_indices based on grid
+        if depth == 0:
+            self.included_indices = IncludedIndices(grid.get_indices())
+        else:
+            # If refining, add new grid points to existing included_indices
+            self.included_indices.add_indices(grid.get_indices()) 
         
-        print(f"Processing depth {depth} with {len(grid.get_indices())} grid points")
+        print(f"Processing depth {depth} with {len(self.included_indices.get_indices())} potential grid points")
         
         # Load or process the data for this level
         if not os.path.exists(scan_file) or not os.path.exists(indices_file):
@@ -592,8 +595,9 @@ class DisplacementAnalyzer:
 
 if __name__ == "__main__":
 
-    NTH_VOXEL_SAMPLING = 4 # Divide the voxel size by 2 each time
+    NTH_VOXEL_SAMPLING = 16 # Divide the voxel size by 2 each time
     MAX_VOXELS_PER_SUBJECT = 200_000
+    DEPTH = 4
 
     # --- Define Subject Scan Paths (Replace with your actual paths) ---
     subject_scan_paths = [
@@ -606,7 +610,7 @@ if __name__ == "__main__":
 
     scans = ScanCollection(subject_scan_paths)
     grid = scans.construct_grid(NTH_VOXEL_SAMPLING, MAX_VOXELS_PER_SUBJECT)
-    scans.process_scans(grid, max_depth=3)
+    scans.process_scans(grid, max_depth=DEPTH)
     
     # Visualize ALL final included indices
     scans.visualize_indices() 
