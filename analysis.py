@@ -193,16 +193,24 @@ class Similarity:
         return list(self.similarities.keys())
 
     def find_extreme_voxels(self, proportion: float = 0.1) -> List[Index]:
-        # Calculate number of voxels to return based on proportion
+        # Calculate number of voxels to return for each extreme based on proportion
         n_voxels = int(len(self.get_indices()) * proportion)
         if n_voxels < 1:
             n_voxels = 1
 
-        # Get indices of the most similar voxels
-        most_similar_indices = np.argsort(list(self.similarities.values()))[-n_voxels:]
-        most_similar_coords = [self.get_indices()[i] for i in most_similar_indices]
-
-        return most_similar_coords
+        # Get sorted indices based on similarity values
+        sorted_indices = np.argsort(list(self.similarities.values()))
+        
+        # Get indices of the least similar voxels (first n_voxels)
+        least_similar_indices = sorted_indices[:n_voxels]
+        least_similar_coords = [self.get_indices()[i] for i in least_similar_indices]
+        
+        # Get indices of the most similar voxels (last n_voxels)
+        extreme_indices = sorted_indices[-n_voxels:]
+        most_similar_coords = [self.get_indices()[i] for i in extreme_indices]
+        
+        # Combine both lists and return
+        return least_similar_coords + most_similar_coords
 
 class MaskScan(bd.Scan):
     def __init__(self, path: str, mask_path: Optional[str] = None):
