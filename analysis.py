@@ -274,6 +274,16 @@ class DisplacementScan(bd.Scan):
             logger.error(f"Failed to load data from {self.path}: {str(e)}")
             raise
         
+    def apply_mask(self, mask: np.ndarray):
+        if len(self.img.shape) == 3:
+            self.img = self.img * mask
+        elif len(self.img.shape) == 4:
+            self.img = self.img * mask[:, :, :, np.newaxis]
+        elif len(self.img.shape) == 5:
+            self.img = self.img * mask[:, :, :, np.newaxis, np.newaxis]
+        else:
+            raise ValueError(f"Invalid shape: {self.img.shape}")
+
     def unload_data(self):
         self.img = None
 
@@ -340,6 +350,7 @@ class BIDSScanCollection:
         self.scans: List[DisplacementScan] = []
         self.masks: List[MaskScan] = []
         self.similarity = Similarity()
+        self.mask: Optional[np.ndarray] = None
 
         # Load matching scans from the BIDS structure
         self._load_matching_scans(scan_pattern, mask_pattern, subject_filter, session_filter)
@@ -428,8 +439,8 @@ class BIDSScanCollection:
     def reject_indices(self, included_indices: IncludedIndices):
         for scan in self.scans:
             scan.reject_indices(included_indices)
-            
-    def compute_mask(self) -> np.ndarray:
+
+    def set_mask(self):
         # Initialize an array to accumulate mask values
         mask_sum = np.zeros(self.dims, dtype=np.float32)
         mask_count = 0
@@ -447,10 +458,11 @@ class BIDSScanCollection:
         # Calculate mean mask if we have any valid masks
         if mask_count > 0:
             mean_mask = mask_sum / mask_count
-            return mean_mask
+            # Return binary mask where values are > 0.5
+            self.mask = (mean_mask > 0.5).astype(np.float32)
         else:
             logger.warning("No valid masks found, returning empty mask")
-            return np.zeros(self.dims, dtype=np.float32)
+            self.mask = np.zeros(self.dims, dtype=np.float32)
 
     def process_scans(self, grid: Grid, depth: int = 0, max_depth: int = 3, mask: Optional[np.ndarray] = None):
         logger.info(f"Processing at depth {depth}/{max_depth}")
