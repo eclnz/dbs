@@ -204,6 +204,24 @@ class Similarity:
 
         return most_similar_coords
 
+class MaskScan(bd.Scan):
+    def __init__(self, path: str, mask_path: Optional[str] = None):
+        super().__init__(path)
+        self.image: Union[np.ndarray, None] = None
+        self.shape: Union[Tuple, None] = nib.load(path).shape #type: ignore
+        self.mask_path = mask_path
+
+    def load_data(self):
+        try:
+            logger.debug(f"Loading data from {self.path}")
+            self.img = np.asarray(nib.load(self.path).get_fdata()).astype(np.bool_)
+            logger.debug(f"Data loaded successfully with shape {self.shape}")
+        except Exception as e:
+            logger.error(f"Failed to load data from {self.path}: {str(e)}")
+            raise
+        
+    def unload_data(self):
+        self.img = None
 
 class DisplacementScan(bd.Scan):
     """Extension of BIDS Scan that adds displacement data handling capabilities"""
@@ -211,7 +229,7 @@ class DisplacementScan(bd.Scan):
     def __init__(self, path: str):
         super().__init__(path)
         self.image: Union[np.ndarray, None] = None
-        self.shape: Union[Tuple, None] = nib.load(path).shape
+        self.shape: Union[Tuple, None] = nib.load(path).shape #type: ignore
         self.displacements: Dict[Index, npt.NDArray[np.float32]] = {}
         logger.debug(f"Initialized DisplacementScan for {path}")
 
@@ -306,15 +324,17 @@ class BIDSScanCollection:
         self,
         bids_instance: bd.BIDS,
         scan_pattern: str = "*",
+        mask_pattern: Optional[str] = None,
         subject_filter: Optional[List[str]] = None,
         session_filter: Optional[List[str]] = None,
     ):
         self.bids = bids_instance
         self.scans: List[DisplacementScan] = []
+        self.masks: List[MaskScan] = []
         self.similarity = Similarity()
 
         # Load matching scans from the BIDS structure
-        self._load_matching_scans(scan_pattern, subject_filter, session_filter)
+        self._load_matching_scans(scan_pattern, mask_pattern, subject_filter, session_filter)
 
         if not self.scans:
             raise ValueError(f"No matching scans found with pattern '{scan_pattern}'")
@@ -325,6 +345,7 @@ class BIDSScanCollection:
     def _load_matching_scans(
         self,
         scan_pattern: str,
+        mask_pattern: Optional[str],
         subject_filter: Optional[List[str]],
         session_filter: Optional[List[str]],
     ) -> None:
@@ -341,6 +362,14 @@ class BIDSScanCollection:
 
                 for scan in session.scans:
                     # Check if scan name matches the pattern
+                    if mask_pattern and fnmatch(scan.scan_name, mask_pattern):
+                        mask_scan = MaskScan(scan.path)
+                        self.masks.append(mask_scan)
+                        logger.info(
+                            f"Added mask scan: {scan.scan_name} from {subject.get_name()}/{session.get_name()}"
+                        )
+                        continue
+                    
                     if fnmatch(scan.scan_name, scan_pattern):
                         try:
                             # Create a DisplacementScan from the regular BIDS Scan
@@ -391,15 +420,31 @@ class BIDSScanCollection:
     def reject_indices(self, included_indices: IncludedIndices):
         for scan in self.scans:
             scan.reject_indices(included_indices)
+            
+    def compute_mask(self) -> np.ndarray:
+        # Initialize an array to accumulate mask values
+        mask_sum = np.zeros(self.dims, dtype=np.float32)
+        mask_count = 0
+        
+        for mask in self.masks:
+            mask.load_data()
+            if np.all(mask.img == 0):
+                logger.warning(f"Mask {mask.path} is empty")
+                continue
+            # Add mask values to the sum
+            mask_sum += mask.img.astype(np.float32)
+            mask_count += 1
+            mask.unload_data()
+        
+        # Calculate mean mask if we have any valid masks
+        if mask_count > 0:
+            mean_mask = mask_sum / mask_count
+            return mean_mask
+        else:
+            logger.warning("No valid masks found, returning empty mask")
+            return np.zeros(self.dims, dtype=np.float32)
 
-    def process_scans(self, grid: Grid, depth: int = 0, max_depth: int = 3):
-        """Process scans with increasingly fine grid resolutions.
-
-        Args:
-            grid: The current grid to use for sampling
-            depth: Current recursion depth (default: 0)
-            max_depth: Maximum recursion depth (default: 3)
-        """
+    def process_scans(self, grid: Grid, depth: int = 0, max_depth: int = 3, mask: Optional[np.ndarray] = None):
         logger.info(f"Processing at depth {depth}/{max_depth}")
         scan_file = f"scan_depth_{depth}.pkl"
         indices_file = f"indices_depth_{depth}.pkl"
