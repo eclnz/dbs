@@ -12,25 +12,26 @@ import bids as bd
 import logging
 from datetime import datetime
 
+
 # Configure logging
 def setup_logging(log_level=logging.INFO, log_file=None):
     """Setup logging configuration with optional file output"""
-    
+
     # Create formatter
     formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
     )
-    
+
     # Create console handler
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(formatter)
-    
+
     # Configure root logger
     root_logger = logging.getLogger()
     root_logger.setLevel(log_level)
     root_logger.addHandler(console_handler)
-    
+
     # Add file handler if requested
     if log_file:
         os.makedirs(os.path.dirname(log_file), exist_ok=True)
@@ -38,11 +39,13 @@ def setup_logging(log_level=logging.INFO, log_file=None):
         file_handler.setFormatter(formatter)
         root_logger.addHandler(file_handler)
         logging.info(f"Logging to file: {log_file}")
-    
+
     return root_logger
+
 
 # Create module-level logger
 logger = logging.getLogger(__name__)
+
 
 def validate_file_path(file_path: str):
     if not os.path.exists(file_path):
@@ -200,23 +203,24 @@ class Similarity:
 
         # Get sorted indices based on similarity values
         sorted_indices = np.argsort(list(self.similarities.values()))
-        
+
         # Get indices of the least similar voxels (first n_voxels)
         least_similar_indices = sorted_indices[:n_voxels]
         least_similar_coords = [self.get_indices()[i] for i in least_similar_indices]
-        
+
         # Get indices of the most similar voxels (last n_voxels)
         extreme_indices = sorted_indices[-n_voxels:]
         most_similar_coords = [self.get_indices()[i] for i in extreme_indices]
-        
+
         # Combine both lists and return
         return least_similar_coords + most_similar_coords
+
 
 class MaskScan(bd.Scan):
     def __init__(self, path: str, mask_path: Optional[str] = None):
         super().__init__(path)
         self.image: Union[np.ndarray, None] = None
-        self.shape: Union[Tuple, None] = nib.load(path).shape #type: ignore
+        self.shape: Union[Tuple, None] = nib.load(path).shape  # type: ignore
         self.mask_path = mask_path
 
     def load_data(self):
@@ -227,9 +231,10 @@ class MaskScan(bd.Scan):
         except Exception as e:
             logger.error(f"Failed to load data from {self.path}: {str(e)}")
             raise
-        
+
     def unload_data(self):
         self.img = None
+
 
 class DisplacementScan(bd.Scan):
     """Extension of BIDS Scan that adds displacement data handling capabilities"""
@@ -237,7 +242,7 @@ class DisplacementScan(bd.Scan):
     def __init__(self, path: str):
         super().__init__(path)
         self.image: Union[np.ndarray, None] = None
-        self.shape: Union[Tuple, None] = nib.load(path).shape #type: ignore
+        self.shape: Union[Tuple, None] = nib.load(path).shape  # type: ignore
         self.displacements: Dict[Index, npt.NDArray[np.float32]] = {}
         logger.debug(f"Initialized DisplacementScan for {path}")
 
@@ -250,7 +255,7 @@ class DisplacementScan(bd.Scan):
     def _validate_indices(self, indices: List[Index]):
         if self.shape is None:
             raise ValueError("Shape is not set. Call load_data first.")
-        
+
         invalid_indices = []
         for index in indices:
             if index.x < 0 or index.x >= self.shape[0]:
@@ -259,7 +264,7 @@ class DisplacementScan(bd.Scan):
                 invalid_indices.append(f"Index y out of bounds: {index.y}")
             if index.z < 0 or index.z >= self.shape[2]:
                 invalid_indices.append(f"Index z out of bounds: {index.z}")
-        
+
         if invalid_indices:
             error_msg = "; ".join(invalid_indices)
             logger.error(f"Invalid indices detected: {error_msg}")
@@ -273,7 +278,7 @@ class DisplacementScan(bd.Scan):
         except Exception as e:
             logger.error(f"Failed to load data from {self.path}: {str(e)}")
             raise
-        
+
     def apply_mask(self, mask: np.ndarray):
         if len(self.img.shape) == 3:
             self.img = self.img * mask
@@ -288,7 +293,9 @@ class DisplacementScan(bd.Scan):
         self.img = None
 
     def sample_voxels(self, included_indices: IncludedIndices):
-        logger.debug(f"Sampling {len(included_indices.get_indices())} voxels from {self.path}")
+        logger.debug(
+            f"Sampling {len(included_indices.get_indices())} voxels from {self.path}"
+        )
         displacements_dict: Dict[Index, npt.NDArray[np.float32]] = {}
 
         indices_to_sample = included_indices.get_indices()
@@ -296,7 +303,9 @@ class DisplacementScan(bd.Scan):
 
         for index in indices_to_sample:
             try:
-                voxel_data = self.img[index.x, index.y, index.z, :, :].astype(np.float32)
+                voxel_data = self.img[index.x, index.y, index.z, :, :].astype(
+                    np.float32
+                )
 
                 if np.all(voxel_data == 0):
                     indices_to_reject.append(index)
@@ -306,19 +315,25 @@ class DisplacementScan(bd.Scan):
                 logger.error(f"Error sampling voxel at {index}: {str(e)}")
                 indices_to_reject.append(index)
 
-        logger.debug(f"Rejecting {len(indices_to_reject)} voxels with zero displacement")
+        logger.debug(
+            f"Rejecting {len(indices_to_reject)} voxels with zero displacement"
+        )
         for index in indices_to_reject:
             included_indices.reject_index(index)
 
         self.displacements.update(displacements_dict)
-        logger.debug(f"Added {len(displacements_dict)} voxels to displacement dictionary")
+        logger.debug(
+            f"Added {len(displacements_dict)} voxels to displacement dictionary"
+        )
 
     def reject_indices(self, included_indices: IncludedIndices):
         included_set = set(included_indices.get_indices())
         current_set = set(self.displacements.keys())
         indices_to_remove = current_set - included_set
-        
-        logger.debug(f"Rejecting {len(indices_to_remove)} indices from displacement dictionary")
+
+        logger.debug(
+            f"Rejecting {len(indices_to_remove)} indices from displacement dictionary"
+        )
         for index in indices_to_remove:
             del self.displacements[index]
 
@@ -330,10 +345,16 @@ class DisplacementScan(bd.Scan):
         self, indices: List[Index]
     ) -> npt.NDArray[np.float32]:
         available_indices = [idx for idx in indices if idx in self.displacements]
-        logger.debug(f"Getting displacement vectors for {len(available_indices)} out of {len(indices)} requested indices")
+        logger.debug(
+            f"Getting displacement vectors for {len(available_indices)} out of {len(indices)} requested indices"
+        )
         return np.array(
-            [self.displacements[index] for index in indices if index in self.displacements], 
-            dtype=np.float32
+            [
+                self.displacements[index]
+                for index in indices
+                if index in self.displacements
+            ],
+            dtype=np.float32,
         )
 
 
@@ -353,7 +374,9 @@ class BIDSScanCollection:
         self.mask: Optional[np.ndarray] = None
 
         # Load matching scans from the BIDS structure
-        self._load_matching_scans(scan_pattern, mask_pattern, subject_filter, session_filter)
+        self._load_matching_scans(
+            scan_pattern, mask_pattern, subject_filter, session_filter
+        )
 
         if not self.scans:
             raise ValueError(f"No matching scans found with pattern '{scan_pattern}'")
@@ -388,7 +411,7 @@ class BIDSScanCollection:
                             f"Added mask scan: {scan.scan_name} from {subject.get_name()}/{session.get_name()}"
                         )
                         continue
-                    
+
                     if fnmatch(scan.scan_name, scan_pattern):
                         try:
                             # Create a DisplacementScan from the regular BIDS Scan
@@ -409,19 +432,21 @@ class BIDSScanCollection:
                 unique_dims.add(scan.shape)
             else:
                 logger.warning(f"Scan {scan.path} has no shape information")
-        
+
         if not unique_dims:
             raise ValueError("No valid shape information found in any scan")
-            
+
         if len(unique_dims) != 1:
             shapes_str = ", ".join(str(shape) for shape in unique_dims)
             logger.error(f"Inconsistent shapes across scans: {shapes_str}")
             raise ValueError("All scans must have the same shape.")
-            
+
         shape = unique_dims.pop()
         if not isinstance(shape, tuple) or len(shape) < 3:
-            raise ValueError(f"Invalid shape: {shape}. Expected tuple with at least 3 elements")
-            
+            raise ValueError(
+                f"Invalid shape: {shape}. Expected tuple with at least 3 elements"
+            )
+
         return (int(shape[0]), int(shape[1]), int(shape[2]))
 
     def _make_grid(self, nth_voxel: int, max_voxels: int) -> Grid:
@@ -444,7 +469,7 @@ class BIDSScanCollection:
         # Initialize an array to accumulate mask values
         mask_sum = np.zeros(self.dims, dtype=np.float32)
         mask_count = 0
-        
+
         for mask in self.masks:
             mask.load_data()
             if np.all(mask.img == 0):
@@ -454,7 +479,7 @@ class BIDSScanCollection:
             mask_sum += mask.img.astype(np.float32)
             mask_count += 1
             mask.unload_data()
-        
+
         # Calculate mean mask if we have any valid masks
         if mask_count > 0:
             mean_mask = mask_sum / mask_count
@@ -464,10 +489,21 @@ class BIDSScanCollection:
             logger.warning("No valid masks found, returning empty mask")
             self.mask = np.zeros(self.dims, dtype=np.float32)
 
-    def process_scans(self, grid: Grid, depth: int = 0, max_depth: int = 3, mask: Optional[np.ndarray] = None):
+    def process_scans(
+        self,
+        grid: Grid,
+        depth: int = 0,
+        max_depth: int = 3,
+        mask: Optional[np.ndarray] = None,
+        cache_dir: str = ".",
+    ):
         logger.info(f"Processing at depth {depth}/{max_depth}")
-        scan_file = f"scan_depth_{depth}.pkl"
-        indices_file = f"indices_depth_{depth}.pkl"
+
+        # Ensure cache directory exists
+        os.makedirs(cache_dir, exist_ok=True)
+
+        scan_file = os.path.join(cache_dir, f"scan_depth_{depth}.pkl")
+        indices_file = os.path.join(cache_dir, f"indices_depth_{depth}.pkl")
 
         # Initialize or add to included_indices based on grid
         if depth == 0:
@@ -483,9 +519,11 @@ class BIDSScanCollection:
         # Load or process the data for this level
         if not os.path.exists(scan_file) or not os.path.exists(indices_file):
             logger.info(f"Processing new data for depth {depth}")
-            
+
             for scan in self.scans:
                 scan.load_data()
+                if self.mask is not None:
+                    scan.apply_mask(self.mask)
                 scan.sample_voxels(self.included_indices)
                 scan.unload_data()
 
@@ -512,15 +550,15 @@ class BIDSScanCollection:
         existing_similarity_indices = set(self.similarity.get_indices())
         current_indices = set(self.included_indices.get_indices())
         new_indices = list(current_indices - existing_similarity_indices)
-        
+
         if new_indices:
             logger.info(f"Calculating similarity for {len(new_indices)} new indices")
             new_similarities = self.calculate_similarity(new_indices)
             self.similarity.add_similarities(new_indices, new_similarities)
-        
+
         # Find most similar voxels
-        self.most_similar_indices = self.similarity.find_extreme_voxels(proportion=0.1)
-        logger.info(f"Found {len(self.most_similar_indices)} most similar voxels")
+        self.extreme_indices = self.similarity.find_extreme_voxels(proportion=0.1)
+        logger.info(f"Found {len(self.extreme_indices)} most similar voxels")
 
         # Base case: reached maximum depth
         if depth >= max_depth:
@@ -528,8 +566,10 @@ class BIDSScanCollection:
             return
 
         # Create a finer grid focused around the most similar voxels
-        fine_grid = grid.fine_tune_grid(self.most_similar_indices)
-        logger.info(f"Created fine grid with {len(fine_grid.get_indices())} points for depth {depth + 1}")
+        fine_grid = grid.fine_tune_grid(self.extreme_indices)
+        logger.info(
+            f"Created fine grid with {len(fine_grid.get_indices())} points for depth {depth + 1}"
+        )
 
         # Add the fine grid indices to the included indices for the next level
         self.included_indices.add_indices(fine_grid.get_indices())
@@ -548,11 +588,17 @@ class BIDSScanCollection:
     ) -> List[npt.NDArray[np.float32]]:
         displacements_list = []
         for scan in self.scans:
-            displacements_list.append(scan.get_specific_displacements(indices))
+            displacements = scan.get_specific_displacements(indices)
+            displacements_list.append(displacements)
         return displacements_list
 
-    def calculate_similarity(self, indices: List[Index]) -> npt.NDArray[np.float32]:
+    def calculate_similarity(
+        self, indices: Optional[List[Index]] = None
+    ) -> npt.NDArray[np.float32]:
         # Construct list of displacements arrays for the given indices
+        if indices is None:
+            indices = self.included_indices.get_indices()
+
         scans_list = self.get_specific_displacements_array(indices)
         # Calculate similarity matrix for the list of displacements arrays
         similarity_matrix = calculate_similarity_matrix(scans_list)
@@ -572,7 +618,9 @@ class BIDSScanCollection:
         Args:
             output_path: Path to save the visualization image
         """
-        logger.info(f"Visualizing {len(self.included_indices.get_indices())} indices...")
+        logger.info(
+            f"Visualizing {len(self.included_indices.get_indices())} indices..."
+        )
 
         if self.scans is None or len(self.scans) == 0:
             raise ValueError("No scans found. Call load_data first.")
@@ -689,9 +737,7 @@ class BIDSScanCollection:
             f"Detailed visualization saved to {output_path.replace('.png', '_detailed.png')}"
         )
 
-    def visualize_most_similar_indices(
-        self, output_path: str = "most_similar_indices.png"
-    ):
+    def visualize_extreme_indices(self, output_path: str = "extreme_indices.png"):
         """
         Visualize the MOST SIMILAR included indices from the final round
         in three anatomical planes.
@@ -699,13 +745,13 @@ class BIDSScanCollection:
         Args:
             output_path: Path to save the visualization image
         """
-        if not hasattr(self, "most_similar_indices") or not self.most_similar_indices:
+        if not hasattr(self, "extreme_indices") or not self.extreme_indices:
             logger.info(
-                "No 'most_similar_indices' found. Run process_scans to completion first."
+                "No 'extreme_indices' found. Run process_scans to completion first."
             )
             return
 
-        num_similar = len(self.most_similar_indices)
+        num_similar = len(self.extreme_indices)
         logger.info(f"Visualizing {num_similar} MOST SIMILAR indices...")
 
         # Get the dimensions from the first scan
@@ -715,7 +761,7 @@ class BIDSScanCollection:
         # Create a binary volume with 1s ONLY at the most similar indices
         volume = np.zeros(img_shape, dtype=np.float32)
 
-        for index in self.most_similar_indices:
+        for index in self.extreme_indices:
             if (
                 0 <= index.x < img_shape[0]
                 and 0 <= index.y < img_shape[1]
@@ -812,6 +858,79 @@ class BIDSScanCollection:
             f"Detailed most similar indices visualization saved to {output_path.replace('.png', '_detailed.png')}"
         )
 
+    def visualize_similarity_image(self, output_path: str = "similarity_image.png"):
+        similarity_volume = self.calculate_similarity_image()
+        img_shape = similarity_volume.shape[:3]
+        logger.info(f"Creating similarity visualization volume with shape {img_shape}")
+
+        # Create a figure with 3 subplots for three planes
+        fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+
+        # Create maximum intensity projections (MIPs) along each axis
+        mip_z = np.mean(similarity_volume, axis=2)  # Axial MIP
+        mip_y = np.mean(similarity_volume, axis=1)  # Coronal MIP
+        mip_x = np.mean(similarity_volume, axis=0)  # Sagittal MIP
+
+        # Plot axial (transverse) view
+        im = axes[0].imshow(mip_z, cmap="hot", origin="lower")
+        axes[0].set_title(f"Axial View (MIP)")
+        axes[0].set_xlabel("Y")
+        axes[0].set_ylabel("X")
+
+        # Plot coronal view
+        axes[1].imshow(mip_y, cmap="hot", origin="lower")
+        axes[1].set_title(f"Coronal View (MIP)")
+        axes[1].set_xlabel("Z")
+        axes[1].set_ylabel("X")
+
+        # Plot sagittal view
+        axes[2].imshow(mip_x, cmap="hot", origin="lower")
+        axes[2].set_title(f"Sagittal View (MIP)")
+        axes[2].set_xlabel("Z")
+        axes[2].set_ylabel("Y")
+
+        # Add a single colorbar
+        cbar = fig.colorbar(
+            im, ax=axes, orientation="horizontal", fraction=0.05, pad=0.1
+        )
+        cbar.set_label("Similarity Score")
+
+        plt.tight_layout()
+        plt.savefig(output_path, dpi=300, bbox_inches="tight")
+        plt.close()
+        logger.info(f"Similarity image visualization saved to {output_path}")
+
+    def calculate_similarity_image(
+        self,
+        scans: Optional[List[DisplacementScan]] = None,
+        indices: Optional[IncludedIndices] = None,
+    ) -> np.ndarray:
+        # Create empty similarity volume with the same dimensions as our reference
+        similarity_volume = np.zeros(self.dims, dtype=np.float32)
+
+        # Use provided scans or default to self.scans
+        if scans is None:
+            scans = self.scans
+
+        # Get all unique indices from all scans
+        if indices is None:
+            indices = self.included_indices
+
+        # Convert to list for similarity calculation
+        all_indices_list = list(indices.get_indices())
+
+        logger.info(f"Calculating similarity image for {len(all_indices_list)} voxels")
+
+        # Calculate similarity using the existing method
+        similarities = self.calculate_similarity(all_indices_list)
+
+        # Map similarities back to the 3D volume
+        for idx, index in enumerate(all_indices_list):
+            similarity_volume[index.x, index.y, index.z] = similarities[idx]
+
+        logger.info("Similarity image calculation complete")
+        return similarity_volume
+
 
 @jit(nopython=True)
 def cosine_similarity_3d_timeseries(vec1: np.ndarray, vec2: np.ndarray) -> np.float32:
@@ -858,3 +977,185 @@ def calculate_similarity_matrix(
             similarities[i, j, :] = compare_2_subjects(subject1, subject2, num_voxels)
 
     return similarities
+
+
+def interpolate_volume(volume, mask=None):
+    from scipy.ndimage import gaussian_filter
+    from scipy.interpolate import RBFInterpolator
+
+    logger.info(f"Interpolating volume with shape {volume.shape} using RBFInterpolator")
+
+    # Find non-zero voxels (valid data points)
+    non_zero_coords = np.argwhere(volume > 0)
+    values = volume[volume > 0]
+
+    # Build interpolator using only non-zero points
+    rbf = RBFInterpolator(non_zero_coords, values, neighbors=20, smoothing=0.1)
+
+    # Interpolate the entire volume grid
+    grid_coords = (
+        np.array(
+            np.meshgrid(
+                np.arange(volume.shape[0]),
+                np.arange(volume.shape[1]),
+                np.arange(volume.shape[2]),
+                indexing="ij",
+            )
+        )
+        .reshape(3, -1)
+        .T
+    )
+
+    interpolated_flat = rbf(grid_coords)
+    interpolated_volume = interpolated_flat.reshape(volume.shape)
+
+    # Smooth the result to reduce artifacts
+    smoothed_volume = gaussian_filter(interpolated_volume, sigma=1.0)
+
+    # Apply mask if provided
+    if mask is not None:
+        smoothed_volume *= mask
+
+    logger.info("Interpolation complete")
+    return smoothed_volume
+
+
+def save_similarity_nifti(self, output_path: str) -> None:
+    """
+    Generate and save a full-resolution similarity map as a NIfTI file.
+
+    Args:
+        output_path: Path where to save the NIfTI file
+    """
+    interpolated_volume = self.interpolate_similarity_volume()
+
+    # Save as NIfTI
+    import nibabel as nib
+
+    logger.info(f"Saving interpolated similarity map to {output_path}")
+
+    # Create NIfTI image from similarity volume using a default affine
+    affine = np.eye(4)  # Create identity matrix as default affine
+    nifti_img = nib.Nifti1Image(interpolated_volume, affine)
+    nib.save(nifti_img, output_path)
+
+    logger.info(f"Saved similarity map to {output_path}")
+
+
+def visualize_volume(
+    volume: np.ndarray,
+    output_path: str,
+    colormap: str = "viridis",
+    title: str = "Volume Visualization",
+):
+    """Static helper method to visualize a 3D volume with orthogonal slices
+
+    Args:
+        volume: 3D numpy array containing the volume data
+        output_path: Path to save the visualization image
+        colormap: Matplotlib colormap name (default: 'viridis')
+        title: Title for the visualization (default: 'Volume Visualization')
+    """
+    import matplotlib.pyplot as plt
+    import matplotlib.cm as cm
+
+    if not isinstance(volume, np.ndarray) or volume.ndim != 3:
+        raise ValueError("Input volume must be a 3D numpy array")
+
+    img_shape = volume.shape
+    logger.info(f"Visualizing volume with shape {img_shape}")
+
+    # Create figure with 3 subplots for three planes
+    fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+    fig.suptitle(title, fontsize=16)
+
+    # Get middle slices
+    mid_x, mid_y, mid_z = [dim // 2 for dim in img_shape]
+
+    # Calculate colormap range based on non-zero values
+    non_zero = volume[volume > 0]
+    vmin, vmax = np.percentile(non_zero, [5, 95]) if len(non_zero) > 0 else (0, 1)
+    cmap = cm.get_cmap(colormap)
+
+    # Plot slices with consistent colormap range
+    slices = [
+        (volume[:, :, mid_z], "Axial Slice", "X", "Y", f"z={mid_z}"),
+        (volume[:, mid_y, :], "Coronal Slice", "X", "Z", f"y={mid_y}"),
+        (volume[mid_x, :, :], "Sagittal Slice", "Y", "Z", f"x={mid_x}"),
+    ]
+
+    for ax, (data, slice_type, xlabel, ylabel, pos) in zip(axes, slices):
+        data = np.rot90(data, 3)
+        im = ax.imshow(data, cmap=cmap, origin="lower", vmin=vmin, vmax=vmax)
+        ax.set_title(f"{slice_type} ({pos})")
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(ylabel)
+
+    # Add colorbar
+    cbar = fig.colorbar(im, ax=axes, orientation="horizontal", fraction=0.05, pad=0.1)
+    cbar.set_label("Value")
+
+    # Save and close figure
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=300, bbox_inches="tight")
+    plt.close()
+
+    logger.info(f"Volume visualization saved to {output_path}")
+
+
+def create_detailed_volume_view(
+    volume: np.ndarray,
+    output_path: str,
+    colormap: str = "viridis",
+    title: str = "Detailed Volume View",
+):
+    """Create a more detailed view with multiple slices along each dimension"""
+    import matplotlib.pyplot as plt
+
+    img_shape = volume.shape
+
+    # Create a 3x3 grid of slices
+    fig, axes = plt.subplots(3, 3, figsize=(18, 18))
+
+    # Calculate slice positions (25%, 50%, 75% through the volume)
+    slice_positions = [
+        [int(img_shape[0] * 0.25), int(img_shape[0] * 0.5), int(img_shape[0] * 0.75)],
+        [int(img_shape[1] * 0.25), int(img_shape[1] * 0.5), int(img_shape[1] * 0.75)],
+        [int(img_shape[2] * 0.25), int(img_shape[2] * 0.5), int(img_shape[2] * 0.75)],
+    ]
+
+    # Get color scaling for consistency
+    non_zero = volume[volume > 0]
+    if len(non_zero) > 0:
+        vmin, vmax = np.percentile(non_zero, [5, 95])
+    else:
+        vmin, vmax = 0, 1
+    cmap = plt.cm.get_cmap(colormap)
+
+    # Plot axial slices (top row)
+    for i, z in enumerate(slice_positions[2]):
+        axes[0, i].imshow(
+            volume[:, :, z], cmap=cmap, origin="lower", vmin=vmin, vmax=vmax
+        )
+        axes[0, i].set_title(f"Axial (z={z})")
+
+    # Plot coronal slices (middle row)
+    for i, y in enumerate(slice_positions[1]):
+        axes[1, i].imshow(
+            volume[:, y, :], cmap=cmap, origin="lower", vmin=vmin, vmax=vmax
+        )
+        axes[1, i].set_title(f"Coronal (y={y})")
+
+    # Plot sagittal slices (bottom row)
+    for i, x in enumerate(slice_positions[0]):
+        axes[2, i].imshow(
+            volume[x, :, :], cmap=cmap, origin="lower", vmin=vmin, vmax=vmax
+        )
+        axes[2, i].set_title(f"Sagittal (x={x})")
+
+    plt.suptitle(title, fontsize=16)
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=300, bbox_inches="tight")
+    plt.close()
+
+    logger.info(f"Detailed volume visualization saved to {output_path}")
