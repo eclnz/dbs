@@ -6,11 +6,13 @@ from dataclasses import dataclass
 from typing import List, Dict, Tuple, Optional, Union
 import numpy.typing as npt
 import matplotlib.pyplot as plt
+import matplotlib.cm as cm
 import nibabel as nib
 from fnmatch import fnmatch
 import bids as bd
 import logging
-from datetime import datetime
+from scipy.ndimage import gaussian_filter
+from scipy.interpolate import RBFInterpolator
 
 
 # Configure logging
@@ -574,8 +576,8 @@ class BIDSScanCollection:
         # Add the fine grid indices to the included indices for the next level
         self.included_indices.add_indices(fine_grid.get_indices())
 
-        # Recursive call with increased depth
-        self.process_scans(fine_grid, depth + 1, max_depth)
+        # Recursive call with increased depth - PASS THE CACHE_DIR PARAMETER
+        self.process_scans(fine_grid, depth + 1, max_depth, mask, cache_dir)
 
     def get_scan_arrays(self) -> List[npt.NDArray[np.float32]]:
         return [scan.get_displacements() for scan in self.scans]
@@ -980,9 +982,6 @@ def calculate_similarity_matrix(
 
 
 def interpolate_volume(volume, mask=None):
-    from scipy.ndimage import gaussian_filter
-    from scipy.interpolate import RBFInterpolator
-
     logger.info(f"Interpolating volume with shape {volume.shape} using RBFInterpolator")
 
     # Find non-zero voxels (valid data points)
