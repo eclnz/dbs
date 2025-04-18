@@ -951,9 +951,9 @@ def interpolate_volume(volume, mask=None):
     # Find non-zero voxels (valid data points)
     non_zero_coords = np.argwhere(volume > 0)
     values = volume[volume > 0]
-
+    
     # Build interpolator using only non-zero points
-    rbf = RBFInterpolator(non_zero_coords, values, neighbors=20, smoothing=0.1, degree=0)
+    rbf = RBFInterpolator(non_zero_coords, values, neighbors=20, degree=0, kernel='linear')
 
     # Interpolate the entire volume grid
     grid_coords = (
