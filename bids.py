@@ -1,8 +1,8 @@
 import os
 import json
 import nibabel as nib
-from typing import List, Union
-
+from typing import List, Union, Optional
+import numpy as np
 
 def validate_path(path: str):
     if not os.path.exists(path):
@@ -57,6 +57,7 @@ class BIDS:
                             continue
 
                         session.load_scan_types(session_deriv_dir)
+                        session.load_affine_matrices(session_deriv_dir)
                     except Exception as e:
                         print(
                             f"Error loading derivatives for {subject.get_name()}/{session.get_name()}: {str(e)}"
@@ -133,6 +134,7 @@ class Session:
         self.path = path
         self.session_id = os.path.basename(path).split("-")[1]
         self.scans: List[Scan] = []
+        self.affine_matrices: List[AffineMatrix] = []
         self.load_scan_types(path)
 
     def __repr__(self) -> str:
@@ -181,6 +183,35 @@ class Session:
                     print(f"Error loading scan {scan_path}: {str(e)}")
         except Exception as e:
             print(f"Error listing directory {path}: {str(e)}")
+
+    def load_affine_matrices(self, path: str) -> None:
+        if not os.path.exists(path):
+            return
+
+        try:
+            affine_matrix_files = [
+                f
+                for f in os.listdir(path)
+                if f.endswith(".txt")
+            ]
+            if not affine_matrix_files:
+                return
+
+            for affine_matrix_name in affine_matrix_files:
+                affine_matrix_path = os.path.join(path, affine_matrix_name)
+                try:
+                    affine_matrix = AffineMatrix(affine_matrix_path)
+                    self.add_affine_matrix(affine_matrix)
+                except Exception as e:
+                    print(f"Error loading affine matrix {affine_matrix_path}: {str(e)}")
+        except Exception as e:
+            print(f"Error listing directory {path}: {str(e)}")
+
+    def add_affine_matrix(self, affine_matrix: "AffineMatrix") -> None:
+        if affine_matrix not in self.affine_matrices:
+            self.affine_matrices.append(affine_matrix)
+        else:
+            print(f"Affine matrix {affine_matrix} already exists in {self.get_name()}")
 
     def add_scan(self, scan: "Scan") -> None:
         if scan not in self.scans:
