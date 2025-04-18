@@ -6,7 +6,8 @@ from dataclasses import dataclass
 from typing import List, Dict, Tuple, Optional, Union
 import numpy.typing as npt
 import matplotlib
-matplotlib.use('Agg')  # Set the backend to non-interactive before importing pyplot
+
+matplotlib.use("Agg")  # Set the backend to non-interactive before importing pyplot
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import nibabel as nib
@@ -76,22 +77,20 @@ class Index:
 
 @jit(nopython=True)
 def _compute_fine_grid_points(
-    voxels: np.ndarray, 
-    reference_shape: np.ndarray, 
-    nth_voxel: int
+    voxels: np.ndarray, reference_shape: np.ndarray, nth_voxel: int
 ) -> np.ndarray:
     # Pre-allocate a large array for potential points
     # Conservative estimate: each voxel could contribute up to 3^3-1 points
     max_points_per_voxel = 26
     max_points = len(voxels) * max_points_per_voxel
-    
+
     # Pre-allocate output array
     all_points = np.zeros((max_points, 3), dtype=np.int32)
     point_count = 0
-    
+
     for i in range(len(voxels)):
         voxel = voxels[i]
-        
+
         # Calculate ranges around this voxel
         x_min = max(0, voxel[0] - nth_voxel)
         x_max = min(reference_shape[0], voxel[0] + nth_voxel + 1)
@@ -99,7 +98,7 @@ def _compute_fine_grid_points(
         y_max = min(reference_shape[1], voxel[1] + nth_voxel + 1)
         z_min = max(0, voxel[2] - nth_voxel)
         z_max = min(reference_shape[2], voxel[2] + nth_voxel + 1)
-        
+
         # Create fine grid around this voxel
         for x in range(x_min, x_max, nth_voxel):
             for y in range(y_min, y_max, nth_voxel):
@@ -107,18 +106,20 @@ def _compute_fine_grid_points(
                     # Check if point is already in our array
                     is_duplicate = False
                     for j in range(point_count):
-                        if (all_points[j, 0] == x and 
-                            all_points[j, 1] == y and 
-                            all_points[j, 2] == z):
+                        if (
+                            all_points[j, 0] == x
+                            and all_points[j, 1] == y
+                            and all_points[j, 2] == z
+                        ):
                             is_duplicate = True
                             break
-                    
+
                     if not is_duplicate:
                         all_points[point_count, 0] = x
                         all_points[point_count, 1] = y
                         all_points[point_count, 2] = z
                         point_count += 1
-    
+
     # Return only the valid points
     return all_points[:point_count]
 
@@ -135,7 +136,7 @@ class Grid:
         self.nth_voxel = nth_voxel
         self.max_voxels = max_voxels
         self.indices = indices
-        
+
         # Create x y z coordinates
         x_coords = np.arange(0, reference_shape[0], nth_voxel)
         y_coords = np.arange(0, reference_shape[1], nth_voxel)
@@ -153,11 +154,11 @@ class Grid:
                 raise ValueError(
                     f"Number of voxels in grid exceeds max_voxels: {len(indices)} > {max_voxels}"
                 )
-    
+
     @property
     def len(self) -> int:
         return len(self.indices)
-    
+
     def get_indices(self) -> List[Index]:
         if self.indices is None:
             raise ValueError("Indices are not set. Call set_indices first.")
@@ -171,34 +172,38 @@ class Grid:
             voxel_array[i, 0] = idx.x
             voxel_array[i, 1] = idx.y
             voxel_array[i, 2] = idx.z
-        
+
         # Convert reference shape to NumPy array
-        reference_shape = np.array([
-            self.reference_shape[0],
-            self.reference_shape[1], 
-            self.reference_shape[2]
-        ], dtype=np.int32)
-        
+        reference_shape = np.array(
+            [self.reference_shape[0], self.reference_shape[1], self.reference_shape[2]],
+            dtype=np.int32,
+        )
+
         # Use Numba function to compute new grid points
-        fine_points = _compute_fine_grid_points(voxel_array, reference_shape, self.nth_voxel)
-        
+        fine_points = _compute_fine_grid_points(
+            voxel_array, reference_shape, self.nth_voxel
+        )
+
         # Convert back to Index objects
         fine_indices = [Index(int(x), int(y), int(z)) for x, y, z in fine_points]
-        
+
         # Create and return a new grid with the refined indices
         fine_grid = Grid(self.reference_shape, self.nth_voxel, indices=fine_indices)
-        
+
         return fine_grid
-    
+
     def update_nth_voxel(self, nth_voxel: int):
         self.nth_voxel = nth_voxel
-        
+
     def halve_nth_voxel(self):
         new_value = int(np.ceil(self.nth_voxel / 2))
         if self.nth_voxel == 1:
-            raise ValueError("Cannot halve nth_voxel value of 1. Minimum value reached.")
+            raise ValueError(
+                "Cannot halve nth_voxel value of 1. Minimum value reached."
+            )
         else:
             self.nth_voxel = new_value
+
 
 class IncludedIndices:
     def __init__(self, indices: List[Index]):
@@ -264,12 +269,17 @@ class Similarity:
 class DisplacementScan(bd.MNIScan):
     """Extension of BIDS Scan that adds displacement data handling capabilities"""
 
-    def __init__(self, scan: bd.Scan, affine_matrix: bd.AffineMatrix, mask: Optional[bd.Scan] = None):
+    def __init__(
+        self,
+        scan: bd.Scan,
+        affine_matrix: bd.AffineMatrix,
+        mask: Optional[bd.Scan] = None,
+    ):
         super().__init__(scan.path, affine_matrix)
         self.displacements: Dict[Index, npt.NDArray[np.float32]] = {}
         self.affine_matrix = affine_matrix
         self.mask: Optional[bd.Scan] = mask
-        
+
     def __del__(self):
         """Clean up resources when object is deleted."""
         if hasattr(self, "img") and self.img is not None:
@@ -304,7 +314,7 @@ class DisplacementScan(bd.MNIScan):
             raise
 
     def apply_mask(self, mask: np.ndarray):
-        shape = self.img.shape #type: ignore
+        shape = self.img.shape  # type: ignore
         if len(shape) == 3:
             self.img = self.img * mask
         elif len(shape) == 4:
@@ -327,7 +337,7 @@ class DisplacementScan(bd.MNIScan):
         indices_to_reject = []
 
         for index in indices_to_sample:
-            voxel_data = self.img[index.x, index.y, index.z, :, :].astype( #type: ignore
+            voxel_data = self.img[index.x, index.y, index.z, :, :].astype(  # type: ignore
                 np.float32
             )
 
@@ -371,10 +381,10 @@ class DisplacementScan(bd.MNIScan):
         for index in indices:
             if index in self.displacements:
                 displacement_arrays.append(self.displacements[index])
-        
+
         # Convert list to numpy array with float32 dtype
         return np.array(displacement_arrays, dtype=np.float32)
-        
+
     def get_mask(self) -> bd.Scan:
         if self.mask is None:
             raise ValueError("Mask is not set. Call set_mask first.")
@@ -407,34 +417,48 @@ class BIDSScanCollection:
 
         # Get dimensions from the first scan
         self.dims = self._get_unique_dims()
-        
-    def load_session(self, session: bd.Session, affine_pattern: Optional[str], mask_pattern: Optional[str], scan_pattern: str):
+
+    def load_session(
+        self,
+        session: bd.Session,
+        affine_pattern: Optional[str],
+        mask_pattern: Optional[str],
+        scan_pattern: str,
+    ):
         mat_list = []
         for affine_matrix in session.affine_matrices:
             if affine_pattern and fnmatch(affine_matrix.name, affine_pattern):
                 mat_list.append(affine_matrix)
-        assert len(mat_list) == 1, f"There should be exactly one affine matrix for each session, got {len(mat_list)}"
+        assert (
+            len(mat_list) == 1
+        ), f"There should be exactly one affine matrix for each session, got {len(mat_list)}"
         affine_matrix = mat_list[0]
-            
+
         mask_list = []
         for mask_scan in session.scans:
             if mask_pattern and fnmatch(mask_scan.scan_name, mask_pattern):
                 mask_list.append(mask_scan)
-        assert len(mask_list) == 1, f"There should be exactly one mask for each session, got {len(mask_list)}"
+        assert (
+            len(mask_list) == 1
+        ), f"There should be exactly one mask for each session, got {len(mask_list)}"
         mask_scan = mask_list[0]
 
         scan_list = []
         for scan in session.scans:
             if fnmatch(scan.scan_name, scan_pattern):
                 try:
-                    displacement_scan = DisplacementScan(scan, affine_matrix=affine_matrix, mask=mask_scan)
+                    displacement_scan = DisplacementScan(
+                        scan, affine_matrix=affine_matrix, mask=mask_scan
+                    )
                     self.scans.append(displacement_scan)
                     scan_list.append(displacement_scan)
                 except Exception as e:
                     logger.error(
                         f"Error creating DisplacementScan for {scan.path}: {str(e)}"
                     )
-        assert len(scan_list) == 1, f"""
+        assert (
+            len(scan_list) == 1
+        ), f"""
         There should be exactly one scan for each session, got {len(scan_list)} for session {session.session_id}
         scans: {scan_list}
         paths: {[scan.path for scan in scan_list]}
@@ -455,11 +479,15 @@ class BIDSScanCollection:
             for session in subject.sessions:
                 if session_filter and session.session_id not in session_filter:
                     continue
-                
+
                 try:
-                    self.load_session(session, affine_pattern, mask_pattern, scan_pattern)
+                    self.load_session(
+                        session, affine_pattern, mask_pattern, scan_pattern
+                    )
                 except Exception as e:
-                    logger.error(f"Error loading session {session.session_id}: {str(e)}")
+                    logger.error(
+                        f"Error loading session {session.session_id}: {str(e)}"
+                    )
                     continue
 
     def _get_unique_dims(self) -> Tuple[int, int, int]:
@@ -524,7 +552,7 @@ class BIDSScanCollection:
         else:
             logger.warning("No valid masks found, returning empty mask")
             self.mask = np.zeros(self.dims, dtype=np.float32)
-    
+
     def _initialize_cache_paths(self, cache_dir: str, depth: int) -> Tuple[str, str]:
         """Initialize and return paths for cache files."""
         os.makedirs(cache_dir, exist_ok=True)
@@ -535,7 +563,9 @@ class BIDSScanCollection:
     def _update_included_indices(self, grid: Grid, depth: int) -> None:
         """Update included indices based on depth and grid."""
         self.included_indices.add_indices(grid.get_indices())
-        logger.info(f"Depth {depth}: {len(self.included_indices.get_indices())} grid points")
+        logger.info(
+            f"Depth {depth}: {len(self.included_indices.get_indices())} grid points"
+        )
 
     def _process_scan_data(self) -> None:
         """Process data for each scan with masking."""
@@ -546,22 +576,26 @@ class BIDSScanCollection:
             scan.sample_voxels(self.included_indices)
             scan.unload_data()
 
-    def _save_cache_file(self, file_path: str, data: Union[List[DisplacementScan], IncludedIndices]) -> None:
+    def _save_cache_file(
+        self, file_path: str, data: Union[List[DisplacementScan], IncludedIndices]
+    ) -> None:
         """Save processed data to a single cache file."""
         try:
-            with open(file_path, 'wb') as f:
+            with open(file_path, "wb") as f:
                 pickle.dump(data, f)
             logger.info(f"Cache file {os.path.basename(file_path)} saved successfully")
         except Exception as e:
-            logger.error(f"Failed to save cache file {os.path.basename(file_path)}: {str(e)}")
+            logger.error(
+                f"Failed to save cache file {os.path.basename(file_path)}: {str(e)}"
+            )
             raise
-    
+
     def _load_cache(self, scan_file: str, indices_file: str) -> bool:
         """Load data from cache files if they exist."""
         try:
-            with open(scan_file, 'rb') as f:
+            with open(scan_file, "rb") as f:
                 self.scans = pickle.load(f)
-            with open(indices_file, 'rb') as f:
+            with open(indices_file, "rb") as f:
                 self.included_indices = pickle.load(f)
             logger.info("Cache files loaded successfully")
             return True
@@ -569,7 +603,9 @@ class BIDSScanCollection:
             logger.error(f"Failed to load cache files: {str(e)}")
             return False
 
-    def _process_similarities(self, similarity: Similarity, included_indices: IncludedIndices) -> None:
+    def _process_similarities(
+        self, similarity: Similarity, included_indices: IncludedIndices
+    ) -> None:
         """
         Calculate similarities for new indices and add them to the similarity object.
         Does not calculate similarities for existing indices.
@@ -590,11 +626,7 @@ class BIDSScanCollection:
         return fine_grid
 
     def process_scans(
-        self,
-        grid: Grid,
-        depth: int = 0,
-        max_depth: int = 3,
-        cache_dir: str = "."
+        self, grid: Grid, depth: int = 0, max_depth: int = 3, cache_dir: str = "."
     ) -> None:
         """Process scans with progressive refinement using iterative approach."""
         current_grid = grid
@@ -603,64 +635,82 @@ class BIDSScanCollection:
 
             # Initialize cache paths for current depth
             scan_file, indices_file = self._initialize_cache_paths(cache_dir, d)
-            next_indices_file, next_scan_file = self._initialize_cache_paths(cache_dir, d + 1)
-            
+            next_indices_file, next_scan_file = self._initialize_cache_paths(
+                cache_dir, d + 1
+            )
+
             # If cache exists for this depth
             if os.path.exists(indices_file) and os.path.exists(scan_file):
                 logger.info(f"Found existing cache files for depth {d}, loading...")
-                if os.path.exists(next_indices_file) and os.path.exists(next_scan_file) and d < max_depth:
+                if (
+                    os.path.exists(next_indices_file)
+                    and os.path.exists(next_scan_file)
+                    and d < max_depth
+                ):
                     current_grid.halve_nth_voxel()
                     continue
-                with open(indices_file, 'rb') as f:
+                with open(indices_file, "rb") as f:
                     self.included_indices = pickle.load(f)
-                with open(scan_file, 'rb') as f:
+                with open(scan_file, "rb") as f:
                     self.scans = pickle.load(f)
                 logger.info(f"Successfully loaded cached data for depth {d}")
-                
+
                 # If this is the final iteration, we're done
                 if d == max_depth:
-                    logger.info(f"Reached maximum depth {max_depth}. Processing complete.")
+                    logger.info(
+                        f"Reached maximum depth {max_depth}. Processing complete."
+                    )
                     return
-                
+
                 # Halve the nth voxel
                 current_grid.halve_nth_voxel()
-                    
+
                 # Calculate similarities if needed for next iteration
-                self._process_similarities(similarity=self.similarity, included_indices=self.included_indices)
-                
+                self._process_similarities(
+                    similarity=self.similarity, included_indices=self.included_indices
+                )
+
                 # Prepare grid for next iteration
-                extreme_indices = self.similarity.find_extreme_voxels(proportion=0.1) # TODO: NUMBA candidate
-                current_grid = self._refine_grid(current_grid, extreme_indices) #TODO: NUMBA candidate
+                extreme_indices = self.similarity.find_extreme_voxels(
+                    proportion=0.1
+                )  # TODO: NUMBA candidate
+                current_grid = self._refine_grid(
+                    current_grid, extreme_indices
+                )  # TODO: NUMBA candidate
                 continue
-                
+
             # Process new data if no cache exists
             logger.info(f"No cache found for depth {d}, processing new data...")
-            
+
             # For first depth, initialize indices; for subsequent depths add to existing
             if d == depth:
                 self.included_indices = IncludedIndices(current_grid.get_indices())
             else:
                 self.included_indices.add_indices(current_grid.get_indices())
-                
-            logger.info(f"Depth {d}: {len(self.included_indices.get_indices())} grid points")
-            
+
+            logger.info(
+                f"Depth {d}: {len(self.included_indices.get_indices())} grid points"
+            )
+
             # Process scan data
             self._process_scan_data()
-            
+
             # Post-processing
             self.reject_indices(self.included_indices)
-            self._process_similarities(similarity=self.similarity, included_indices=self.included_indices)
-            
+            self._process_similarities(
+                similarity=self.similarity, included_indices=self.included_indices
+            )
+
             # Save cache
             self._save_cache_file(indices_file, self.included_indices)
             self._save_cache_file(scan_file, self.scans)
             logger.info(f"Cache saved for depth {d}")
-            
+
             # If this is the final iteration, we're done
             if d == max_depth:
                 logger.info(f"Reached maximum depth {max_depth}. Processing complete.")
                 return
-                
+
             # Prepare grid for next iteration
             current_grid = self._refine_grid(current_grid, extreme_indices)
 
@@ -773,7 +823,7 @@ class BIDSScanCollection:
         plt.suptitle(f"Visualization of {len(indices)} Selected Indices", fontsize=16)
 
         # Save figure
-        
+
         plt.savefig(output_path, dpi=300, bbox_inches="tight")
         plt.close()
 
@@ -814,7 +864,7 @@ class BIDSScanCollection:
         plt.suptitle(f"Detailed Slices of {len(indices)} Selected Indices", fontsize=16)
 
         # Save detailed figure
-        
+
         plt.savefig(
             output_path.replace(".png", "_detailed.png"), dpi=300, bbox_inches="tight"
         )
@@ -861,7 +911,6 @@ class BIDSScanCollection:
         )
         cbar.set_label("Similarity Score")
 
-        
         plt.savefig(output_path, dpi=300, bbox_inches="tight")
         plt.close()
         logger.info(f"Similarity image visualization saved to {output_path}")
@@ -951,9 +1000,11 @@ def interpolate_volume(volume, mask=None):
     # Find non-zero voxels (valid data points)
     non_zero_coords = np.argwhere(volume > 0)
     values = volume[volume > 0]
-    
+
     # Build interpolator using only non-zero points
-    rbf = RBFInterpolator(non_zero_coords, values, neighbors=20, degree=0, kernel='linear')
+    rbf = RBFInterpolator(
+        non_zero_coords, values, neighbors=20, degree=0, kernel="linear"
+    )
 
     # Interpolate the entire volume grid
     grid_coords = (
@@ -1059,7 +1110,7 @@ def visualize_volume(
     cbar.set_label("Value")
 
     # Save and close figure
-    
+
     plt.savefig(output_path, dpi=300, bbox_inches="tight")
     plt.close()
 
@@ -1117,7 +1168,7 @@ def create_detailed_volume_view(
         axes[2, i].set_title(f"Sagittal (x={x})")
 
     plt.suptitle(title, fontsize=16)
-    
+
     plt.savefig(output_path, dpi=300, bbox_inches="tight")
     plt.close()
 

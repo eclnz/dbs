@@ -4,6 +4,7 @@ import nibabel as nib
 from typing import List, Union, Optional
 import numpy as np
 
+
 def validate_path(path: str):
     if not os.path.exists(path):
         raise FileNotFoundError(f"Path not found: {path}")
@@ -189,11 +190,7 @@ class Session:
             return
 
         try:
-            affine_matrix_files = [
-                f
-                for f in os.listdir(path)
-                if f.endswith(".txt")
-            ]
+            affine_matrix_files = [f for f in os.listdir(path) if f.endswith(".txt")]
             if not affine_matrix_files:
                 return
 
@@ -231,7 +228,7 @@ class AffineMatrix:
         self.path = path
         self.name = os.path.basename(path).replace(".txt", "")
         self.matrix = self._load_matrix()
-        
+
     def __repr__(self) -> str:
         return f"AffineMatrix(name={self.name})"
 
@@ -240,6 +237,7 @@ class AffineMatrix:
             return np.loadtxt(self.path)
         except Exception as e:
             raise RuntimeError(f"Failed to load affine matrix: {str(e)}")
+
 
 class Scan:
     def __init__(self, path: str):
@@ -268,7 +266,7 @@ class Scan:
 
     def _get_shape(self) -> tuple:
         return nib.load(self.path).shape  # type: ignore
-    
+
     def __del__(self):
         if self.img is not None:
             self.img = None
@@ -303,19 +301,20 @@ class Scan:
             except Exception as e:
                 raise RuntimeError(f"Failed to read JSON sidecar {json_path}: {str(e)}")
         return None
-    
+
     def load_data(self):
         try:
             self.img = np.asarray(nib.load(self.path).get_fdata()).astype(np.float32)
         except Exception as e:
             raise RuntimeError(f"Failed to load data from {self.path}: {str(e)}")
-        
+
     def get_data(self) -> np.ndarray:
         if self.img is None:
             self.load_data()
         if self.img is None:
             raise ValueError("Data is not loaded. Could not load data from {self.path}")
         return self.img
+
 
 class MNIScan(Scan):
     def __init__(self, path: str, affine_matrix: AffineMatrix):
@@ -324,6 +323,7 @@ class MNIScan(Scan):
 
     def _load_affine_matrix(self, affine_matrix_path: str) -> np.ndarray:
         return np.loadtxt(affine_matrix_path)
+
 
 if __name__ == "__main__":
     bids = BIDS("/Users/edwardclarkson/git/qaMRI-clone/testData/BIDS4")
