@@ -129,11 +129,13 @@ class Grid:
         reference_shape: Tuple[int, int, int],
         nth_voxel: int,
         max_voxels: Optional[int] = None,
+        indices: List[Index] = [],
     ):
         self.reference_shape = reference_shape
         self.nth_voxel = nth_voxel
         self.max_voxels = max_voxels
-
+        self.indices = indices
+        
         # Create x y z coordinates
         x_coords = np.arange(0, reference_shape[0], nth_voxel)
         y_coords = np.arange(0, reference_shape[1], nth_voxel)
@@ -142,15 +144,23 @@ class Grid:
         # Create grid using meshgrid and stack coordinates
         xx, yy, zz = np.meshgrid(x_coords, y_coords, z_coords, indexing="ij")
 
-        indices = list(zip(xx.ravel(), yy.ravel(), zz.ravel()))
-        self.indices = [Index(x, y, z) for x, y, z in indices]
+        if len(indices) == 0:
+            new_indices = list(zip(xx.ravel(), yy.ravel(), zz.ravel()))
+            self.indices = [Index(x, y, z) for x, y, z in new_indices]
 
-        if max_voxels is not None and len(self.indices) > max_voxels:
-            raise ValueError(
-                f"Number of voxels in grid exceeds max_voxels: {len(self.indices)} > {max_voxels}"
-            )
-
+        if len(indices) > 0:
+            if max_voxels is not None and len(indices) > max_voxels:
+                raise ValueError(
+                    f"Number of voxels in grid exceeds max_voxels: {len(indices)} > {max_voxels}"
+                )
+    
+    @property
+    def len(self) -> int:
+        return len(self.indices)
+    
     def get_indices(self) -> List[Index]:
+        if self.indices is None:
+            raise ValueError("Indices are not set. Call set_indices first.")
         return self.indices
 
     def fine_tune_grid(self, similar_voxel_indices: List[Index]):
@@ -179,7 +189,16 @@ class Grid:
         fine_grid = Grid(self.reference_shape, self.nth_voxel, indices=fine_indices)
         
         return fine_grid
-
+    
+    def update_nth_voxel(self, nth_voxel: int):
+        self.nth_voxel = nth_voxel
+        
+    def halve_nth_voxel(self):
+        new_value = int(np.ceil(self.nth_voxel / 2))
+        if self.nth_voxel == 1:
+            raise ValueError("Cannot halve nth_voxel value of 1. Minimum value reached.")
+        else:
+            self.nth_voxel = new_value
 
 class IncludedIndices:
     def __init__(self, indices: List[Index]):
