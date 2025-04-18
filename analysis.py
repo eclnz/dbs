@@ -1,7 +1,7 @@
 import os
 import numpy as np
 import pickle
-from numba import jit  # type: ignore
+from numba import jit, int32, float32  # type: ignore
 from dataclasses import dataclass
 from typing import List, Dict, Tuple, Optional, Union
 import numpy.typing as npt
@@ -74,6 +74,55 @@ class Index:
         return hash((self.x, self.y, self.z))
 
 
+@jit(nopython=True)
+def _compute_fine_grid_points(
+    voxels: np.ndarray, 
+    reference_shape: np.ndarray, 
+    nth_voxel: int
+) -> np.ndarray:
+    # Pre-allocate a large array for potential points
+    # Conservative estimate: each voxel could contribute up to 3^3-1 points
+    max_points_per_voxel = 26
+    max_points = len(voxels) * max_points_per_voxel
+    
+    # Pre-allocate output array
+    all_points = np.zeros((max_points, 3), dtype=np.int32)
+    point_count = 0
+    
+    for i in range(len(voxels)):
+        voxel = voxels[i]
+        
+        # Calculate ranges around this voxel
+        x_min = max(0, voxel[0] - nth_voxel)
+        x_max = min(reference_shape[0], voxel[0] + nth_voxel + 1)
+        y_min = max(0, voxel[1] - nth_voxel)
+        y_max = min(reference_shape[1], voxel[1] + nth_voxel + 1)
+        z_min = max(0, voxel[2] - nth_voxel)
+        z_max = min(reference_shape[2], voxel[2] + nth_voxel + 1)
+        
+        # Create fine grid around this voxel
+        for x in range(x_min, x_max, nth_voxel):
+            for y in range(y_min, y_max, nth_voxel):
+                for z in range(z_min, z_max, nth_voxel):
+                    # Check if point is already in our array
+                    is_duplicate = False
+                    for j in range(point_count):
+                        if (all_points[j, 0] == x and 
+                            all_points[j, 1] == y and 
+                            all_points[j, 2] == z):
+                            is_duplicate = True
+                            break
+                    
+                    if not is_duplicate:
+                        all_points[point_count, 0] = x
+                        all_points[point_count, 1] = y
+                        all_points[point_count, 2] = z
+                        point_count += 1
+    
+    # Return only the valid points
+    return all_points[:point_count]
+
+
 class Grid:
     def __init__(
         self,
@@ -105,57 +154,30 @@ class Grid:
         return self.indices
 
     def fine_tune_grid(self, similar_voxel_indices: List[Index]):
-
-        new_nth_voxel = max(1, int(np.ceil(self.nth_voxel / 2)))  # Ensure integer step
-
-        # Generate fine grid coordinates around each center voxel
-        fine_indices_set = set()  # Use a set for efficient duplicate handling
-
-        for voxel in similar_voxel_indices:
-            # Define coordinate ranges symmetrically around the voxel
-            # using the new_nth_voxel step size. Add 1 to the end point for np.arange
-            # to potentially include the upper bound if it falls on a step.
-            x_range = np.arange(
-                max(0, voxel.x - new_nth_voxel),
-                min(self.reference_shape[0], voxel.x + new_nth_voxel + 1),
-                new_nth_voxel,
-            )
-            y_range = np.arange(
-                max(0, voxel.y - new_nth_voxel),
-                min(self.reference_shape[1], voxel.y + new_nth_voxel + 1),
-                new_nth_voxel,
-            )
-            z_range = np.arange(
-                max(0, voxel.z - new_nth_voxel),
-                min(self.reference_shape[2], voxel.z + new_nth_voxel + 1),
-                new_nth_voxel,
-            )
-
-            # Create grid points within the defined ranges
-            # Check if any range is empty before meshing
-            if x_range.size > 0 and y_range.size > 0 and z_range.size > 0:
-                grid = np.stack(
-                    np.meshgrid(x_range, y_range, z_range, indexing="ij"), axis=-1
-                )
-                # Add valid Index objects to the set
-                for point in grid.reshape(-1, 3):
-                    # Ensure points are within the original reference shape strictly
-                    if (
-                        0 <= point[0] < self.reference_shape[0]
-                        and 0 <= point[1] < self.reference_shape[1]
-                        and 0 <= point[2] < self.reference_shape[2]
-                    ):
-                        fine_indices_set.add(
-                            Index(int(point[0]), int(point[1]), int(point[2]))
-                        )
-
-        # Convert the set of unique indices to a list
-        unique_indices = list(fine_indices_set)
-
-        # Create and return a new grid with the refined indices and step size
-        fine_grid = Grid(self.reference_shape, new_nth_voxel)  # Use new_nth_voxel
-        fine_grid.indices = unique_indices
-
+        """Create a finer grid by placing new grid points around important voxels."""
+        # Convert indices to NumPy array for Numba function
+        voxel_array = np.zeros((len(similar_voxel_indices), 3), dtype=np.int32)
+        for i, idx in enumerate(similar_voxel_indices):
+            voxel_array[i, 0] = idx.x
+            voxel_array[i, 1] = idx.y
+            voxel_array[i, 2] = idx.z
+        
+        # Convert reference shape to NumPy array
+        reference_shape = np.array([
+            self.reference_shape[0],
+            self.reference_shape[1], 
+            self.reference_shape[2]
+        ], dtype=np.int32)
+        
+        # Use Numba function to compute new grid points
+        fine_points = _compute_fine_grid_points(voxel_array, reference_shape, self.nth_voxel)
+        
+        # Convert back to Index objects
+        fine_indices = [Index(int(x), int(y), int(z)) for x, y, z in fine_points]
+        
+        # Create and return a new grid with the refined indices
+        fine_grid = Grid(self.reference_shape, self.nth_voxel, indices=fine_indices)
+        
         return fine_grid
 
 
