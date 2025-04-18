@@ -216,7 +216,9 @@ class Scan:
             raise FileNotFoundError(f"Scan file not found: {path}")
 
         self.path = path
+        self.img: Optional[np.ndarray] = None
         self.scan_name = self._get_scan_name()
+        self.shape = self._get_shape()
 
         try:
             self.header = self._load_header()
@@ -232,6 +234,13 @@ class Scan:
 
     def __repr__(self) -> str:
         return f"Scan(name={self.scan_name})"
+
+    def _get_shape(self) -> tuple:
+        return nib.load(self.path).shape  # type: ignore
+    
+    def __del__(self):
+        if self.img is not None:
+            self.img = None
 
     def _get_scan_name(self) -> str:
         if len(os.path.basename(self.path).split("_")) > 2:
@@ -263,7 +272,27 @@ class Scan:
             except Exception as e:
                 raise RuntimeError(f"Failed to read JSON sidecar {json_path}: {str(e)}")
         return None
+    
+    def load_data(self):
+        try:
+            self.img = np.asarray(nib.load(self.path).get_fdata()).astype(np.float32)
+        except Exception as e:
+            raise RuntimeError(f"Failed to load data from {self.path}: {str(e)}")
+        
+    def get_data(self) -> np.ndarray:
+        if self.img is None:
+            self.load_data()
+        if self.img is None:
+            raise ValueError("Data is not loaded. Could not load data from {self.path}")
+        return self.img
 
+class MNIScan(Scan):
+    def __init__(self, path: str, affine_matrix: AffineMatrix):
+        super().__init__(path)
+        self.affine = affine_matrix.matrix
+
+    def _load_affine_matrix(self, affine_matrix_path: str) -> np.ndarray:
+        return np.loadtxt(affine_matrix_path)
 
 if __name__ == "__main__":
     bids = BIDS("/Users/edwardclarkson/git/qaMRI-clone/testData/BIDS4")
