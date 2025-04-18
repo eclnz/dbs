@@ -46,7 +46,28 @@ def main():
         default="*MNI152_brain_mask",
         help="Pattern to match mask names",
     )
+    parser.add_argument(
+        "--affine_pattern", "-ap",
+        type=str,
+        default="*matrix",
+        help="Pattern to match affine names",
+    )
+    parser.add_argument(
+        "--template",
+        type=str,
+        help="Path to MNI152 template providing affine matrix for saved images"
+    )
     args = parser.parse_args()
+    
+    # Validate bids path
+    if not os.path.exists(args.bids_path):
+        parser.error(f"BIDS path {args.bids_path} does not exist")
+
+    # Validate that template is provided if affine_pattern is specified
+    if args.affine_pattern and not args.template:
+        parser.error("--template is required when --affine_pattern is specified")
+    if args.affine_pattern and not os.path.exists(args.template):
+        parser.error(f"Template file {args.template} does not exist")
 
     # Create cache directory if it doesn't exist
     os.makedirs(args.cache_dir, exist_ok=True)
@@ -59,8 +80,8 @@ def main():
     log_file = os.path.join("logs", f"analysis-{timestamp}.log")
 
     # Setup logging with DEBUG level instead of INFO
-    setup_logging(log_level=logging.DEBUG, log_file=log_file)
-    logger.info(f"Starting analysis with DEBUG logging")
+    setup_logging(log_level=logging.INFO, log_file=log_file)
+    logger.info(f"Starting analysis with INFO logging")
     logger.info(f"BIDS path: {args.bids_path}")
     logger.info(f"Cache directory: {args.cache_dir}")
 
@@ -75,6 +96,7 @@ def main():
         bids_instance=bids,
         scan_pattern=args.scan_pattern,
         mask_pattern=args.mask_pattern,
+        affine_pattern=args.affine_pattern,
         subject_filter=None,
         session_filter=None,
     )
@@ -130,7 +152,21 @@ def main():
     # Save as NIfTI for potential further analysis
     try:
         logger.info("Saving interpolated similarity map as NIfTI")
-        affine = np.eye(4)
+        if args.template:
+            try:
+                # Load the template to get its affine matrix
+                template_img = nib.load(args.template)
+                affine = template_img.affine
+                logger.info(f"Using affine matrix from template: {args.template}")
+            except Exception as e:
+                logger.error(f"Failed to load template: {str(e)}")
+                affine = np.eye(4)
+                logger.warning("Failed to load template, using identity matrix as affine")
+        else:
+            # Fallback to identity matrix if no template is provided
+            affine = np.eye(4)
+            logger.warning("No template provided, using identity matrix as affine")
+            
         nifti_img = nib.Nifti1Image(interpolated_similarity, affine)
         nib.save(
             nifti_img, os.path.join(args.cache_dir, "interpolated_similarity.nii.gz")
