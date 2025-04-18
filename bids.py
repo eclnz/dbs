@@ -195,6 +195,21 @@ class Session:
         return f"ses-{self.session_id}"
 
 
+class AffineMatrix:
+    def __init__(self, path: str):
+        self.path = path
+        self.name = os.path.basename(path).replace(".txt", "")
+        self.matrix = self._load_matrix()
+        
+    def __repr__(self) -> str:
+        return f"AffineMatrix(name={self.name})"
+
+    def _load_matrix(self) -> np.ndarray:
+        try:
+            return np.loadtxt(self.path)
+        except Exception as e:
+            raise RuntimeError(f"Failed to load affine matrix: {str(e)}")
+
 class Scan:
     def __init__(self, path: str):
         if not os.path.exists(path):
