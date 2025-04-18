@@ -28,26 +28,35 @@ def main():
         help="Directory to store cached data",
     )
     parser.add_argument(
-        "--nth_voxel", type=int, default=16, help="Nth voxel sampling rate"
+        "--nth_voxel", "-nv", type=int, default=16, help="Nth voxel sampling rate"
     )
     parser.add_argument(
-        "--max_voxels", type=int, default=200000, help="Maximum voxels per subject"
+        "--max_voxels",
+        "-mv",
+        type=int,
+        default=200000,
+        help="Maximum voxels per subject",
     )
-    parser.add_argument("--depth", type=int, default=4, help="Maximum recursion depth")
+    parser.add_argument(
+        "--depth", "-d", type=int, default=3, help="Maximum recursion depth"
+    )
     parser.add_argument(
         "--scan_pattern",
+        "-sp",
         type=str,
         default="*MNI152_motion",
         help="Pattern to match scan names",
     )
     parser.add_argument(
         "--mask_pattern",
+        "-mp",
         type=str,
         default="*MNI152_brain_mask",
         help="Pattern to match mask names",
     )
     parser.add_argument(
-        "--affine_pattern", "-ap",
+        "--affine_pattern",
+        "-ap",
         type=str,
         default="*matrix",
         help="Pattern to match affine names",
@@ -55,10 +64,10 @@ def main():
     parser.add_argument(
         "--template",
         type=str,
-        help="Path to MNI152 template providing affine matrix for saved images"
+        help="Path to MNI152 template providing affine matrix for saved images",
     )
     args = parser.parse_args()
-    
+
     # Validate bids path
     if not os.path.exists(args.bids_path):
         parser.error(f"BIDS path {args.bids_path} does not exist")
@@ -117,9 +126,9 @@ def main():
     scans.process_scans(grid, max_depth=args.depth, cache_dir=args.cache_dir)
 
     # Visualize results
+
     logger.info("Generating visualizations")
     scans.visualize_indices(os.path.join(args.cache_dir, "final_indices.png"))
-    scans.visualize_extreme_indices(os.path.join(args.cache_dir, "extreme_indices.png"))
 
     # Calculate the similarity image (sparse representation)
     logger.info("Calculating similarity image")
@@ -132,7 +141,8 @@ def main():
     logger.info("Interpolating similarity volume")
     interpolated_similarity = analysis.interpolate_volume(similarity_volume, scans.mask)
 
-    # Visualize the interpolated similarity volume
+    # Visualize the
+    # interpolated similarity volume
     logger.info("Visualizing interpolated similarity volume")
     analysis.visualize_volume(
         interpolated_similarity,
@@ -161,12 +171,14 @@ def main():
             except Exception as e:
                 logger.error(f"Failed to load template: {str(e)}")
                 affine = np.eye(4)
-                logger.warning("Failed to load template, using identity matrix as affine")
+                logger.warning(
+                    "Failed to load template, using identity matrix as affine"
+                )
         else:
             # Fallback to identity matrix if no template is provided
             affine = np.eye(4)
             logger.warning("No template provided, using identity matrix as affine")
-            
+
         nifti_img = nib.Nifti1Image(interpolated_similarity, affine)
         nib.save(
             nifti_img, os.path.join(args.cache_dir, "interpolated_similarity.nii.gz")
