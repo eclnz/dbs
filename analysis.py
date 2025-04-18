@@ -5,6 +5,8 @@ from numba import jit  # type: ignore
 from dataclasses import dataclass
 from typing import List, Dict, Tuple, Optional, Union
 import numpy.typing as npt
+import matplotlib
+matplotlib.use('Agg')  # Set the backend to non-interactive before importing pyplot
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import nibabel as nib
