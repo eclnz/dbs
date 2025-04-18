@@ -261,36 +261,15 @@ class Similarity:
         return least_similar_coords + most_similar_coords
 
 
-class MaskScan(bd.Scan):
-    def __init__(self, path: str, mask_path: Optional[str] = None):
-        super().__init__(path)
-        self.image: Union[np.ndarray, None] = None
-        self.shape: Union[Tuple, None] = nib.load(path).shape  # type: ignore
-        self.mask_path = mask_path
-
-    def load_data(self):
-        try:
-            logger.debug(f"Loading data from {self.path}")
-            self.img = np.asarray(nib.load(self.path).get_fdata()).astype(np.bool_)
-            logger.debug(f"Data loaded successfully with shape {self.shape}")
-        except Exception as e:
-            logger.error(f"Failed to load data from {self.path}: {str(e)}")
-            raise
-
-    def unload_data(self):
-        self.img = None
-
-
-class DisplacementScan(bd.Scan):
+class DisplacementScan(bd.MNIScan):
     """Extension of BIDS Scan that adds displacement data handling capabilities"""
 
-    def __init__(self, path: str):
-        super().__init__(path)
-        self.image: Union[np.ndarray, None] = None
-        self.shape: Union[Tuple, None] = nib.load(path).shape  # type: ignore
+    def __init__(self, scan: bd.Scan, affine_matrix: bd.AffineMatrix, mask: Optional[bd.Scan] = None):
+        super().__init__(scan.path, affine_matrix)
         self.displacements: Dict[Index, npt.NDArray[np.float32]] = {}
-        logger.debug(f"Initialized DisplacementScan for {path}")
-
+        self.affine_matrix = affine_matrix
+        self.mask: Optional[bd.Scan] = mask
+        
     def __del__(self):
         """Clean up resources when object is deleted."""
         if hasattr(self, "img") and self.img is not None:
@@ -325,14 +304,15 @@ class DisplacementScan(bd.Scan):
             raise
 
     def apply_mask(self, mask: np.ndarray):
-        if len(self.img.shape) == 3:
+        shape = self.img.shape #type: ignore
+        if len(shape) == 3:
             self.img = self.img * mask
-        elif len(self.img.shape) == 4:
+        elif len(shape) == 4:
             self.img = self.img * mask[:, :, :, np.newaxis]
-        elif len(self.img.shape) == 5:
+        elif len(shape) == 5:
             self.img = self.img * mask[:, :, :, np.newaxis, np.newaxis]
         else:
-            raise ValueError(f"Invalid shape: {self.img.shape}")
+            raise ValueError(f"Invalid shape: {shape}")
 
     def unload_data(self):
         self.img = None
@@ -347,18 +327,14 @@ class DisplacementScan(bd.Scan):
         indices_to_reject = []
 
         for index in indices_to_sample:
-            try:
-                voxel_data = self.img[index.x, index.y, index.z, :, :].astype(
-                    np.float32
-                )
+            voxel_data = self.img[index.x, index.y, index.z, :, :].astype( #type: ignore
+                np.float32
+            )
 
-                if np.all(voxel_data == 0):
-                    indices_to_reject.append(index)
-                else:
-                    displacements_dict[index] = voxel_data
-            except Exception as e:
-                logger.error(f"Error sampling voxel at {index}: {str(e)}")
+            if np.all(voxel_data == 0):
                 indices_to_reject.append(index)
+            else:
+                displacements_dict[index] = voxel_data
 
         logger.debug(
             f"Rejecting {len(indices_to_reject)} voxels with zero displacement"
@@ -375,32 +351,34 @@ class DisplacementScan(bd.Scan):
         included_set = set(included_indices.get_indices())
         current_set = set(self.displacements.keys())
         indices_to_remove = current_set - included_set
-
-        logger.debug(
-            f"Rejecting {len(indices_to_remove)} indices from displacement dictionary"
-        )
+        if len(indices_to_remove) > 0:
+            logger.info(
+                f"Rejecting {len(indices_to_remove)} indices from displacement dictionary"
+            )
         for index in indices_to_remove:
             del self.displacements[index]
 
     def get_displacements(self) -> npt.NDArray[np.float32]:
-        logger.debug(f"Getting {len(self.displacements)} displacement vectors")
         return np.array(list(self.displacements.values()), dtype=np.float32)
 
     def get_specific_displacements(
         self, indices: List[Index]
     ) -> npt.NDArray[np.float32]:
-        available_indices = [idx for idx in indices if idx in self.displacements]
-        logger.debug(
-            f"Getting displacement vectors for {len(available_indices)} out of {len(indices)} requested indices"
-        )
-        return np.array(
-            [
-                self.displacements[index]
-                for index in indices
-                if index in self.displacements
-            ],
-            dtype=np.float32,
-        )
+        # Create a list of displacement arrays for indices that exist
+        displacement_arrays = []
+        if len(self.displacements) == 0:
+            raise ValueError("No displacements found. Call sample_voxels first.")
+        for index in indices:
+            if index in self.displacements:
+                displacement_arrays.append(self.displacements[index])
+        
+        # Convert list to numpy array with float32 dtype
+        return np.array(displacement_arrays, dtype=np.float32)
+        
+    def get_mask(self) -> bd.Scan:
+        if self.mask is None:
+            raise ValueError("Mask is not set. Call set_mask first.")
+        return self.mask
 
 
 class BIDSScanCollection:
