@@ -773,7 +773,7 @@ class BIDSScanCollection:
         plt.suptitle(f"Visualization of {len(indices)} Selected Indices", fontsize=16)
 
         # Save figure
-        plt.tight_layout()
+        
         plt.savefig(output_path, dpi=300, bbox_inches="tight")
         plt.close()
 
@@ -814,7 +814,7 @@ class BIDSScanCollection:
         plt.suptitle(f"Detailed Slices of {len(indices)} Selected Indices", fontsize=16)
 
         # Save detailed figure
-        plt.tight_layout()
+        
         plt.savefig(
             output_path.replace(".png", "_detailed.png"), dpi=300, bbox_inches="tight"
         )
@@ -861,7 +861,7 @@ class BIDSScanCollection:
         )
         cbar.set_label("Similarity Score")
 
-        plt.tight_layout()
+        
         plt.savefig(output_path, dpi=300, bbox_inches="tight")
         plt.close()
         logger.info(f"Similarity image visualization saved to {output_path}")
@@ -1059,7 +1059,7 @@ def visualize_volume(
     cbar.set_label("Value")
 
     # Save and close figure
-    plt.tight_layout()
+    
     plt.savefig(output_path, dpi=300, bbox_inches="tight")
     plt.close()
 
@@ -1117,7 +1117,7 @@ def create_detailed_volume_view(
         axes[2, i].set_title(f"Sagittal (x={x})")
 
     plt.suptitle(title, fontsize=16)
-    plt.tight_layout()
+    
     plt.savefig(output_path, dpi=300, bbox_inches="tight")
     plt.close()
 
